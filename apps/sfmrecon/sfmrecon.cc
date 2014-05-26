@@ -31,7 +31,7 @@ struct AppSettings
     std::string exif_name;
     std::string prebundle_file;
     int max_image_size;
-    float feature_noise;
+    float feature_noise_stddev;
 };
 
 void
@@ -48,7 +48,7 @@ features_and_matching (mve::Scene::Ptr scene, AppSettings const& conf,
 
     std::cout << "Computing/loading image features..." << std::endl;
     sfm::bundler::Features bundler_features(feature_opts);
-    bundler_features.compute(scene, viewports, conf.feature_noise);
+    bundler_features.compute(scene, viewports, conf.feature_noise_stddev);
 
     std::cout << "Viewport statistics:" << std::endl;
     for (std::size_t i = 0; i < viewports->size(); ++i)
@@ -288,7 +288,7 @@ main (int argc, char** argv)
     args.add_option('m', "max-pixels", true, "Limit image size by iterative half-sizing [6000000]");
     args.add_option('u', "undistorted", true, "Undistorted image embedding [undistorted]");
     args.add_option('\0', "prebundle", true, "Load/store pre-bundle from file [prebundle.sfm]");
-    args.add_option('f', "feature-noise", true, "feature noise [0.0]");
+    args.add_option('f', "feature-noise-stddev", true, "feature noise standard deviation [0.0]");
     args.parse(argc, argv);
 
     /* Setup defaults. */
@@ -299,7 +299,7 @@ main (int argc, char** argv)
     conf.exif_name = "exif";
     conf.prebundle_file = "prebundle.sfm";
     conf.max_image_size = 6000000;
-    conf.feature_noise = 0.0f;
+    conf.feature_noise_stddev = 0.0f;
 
     /* General settings. */
     for (util::ArgResult const* i = args.next_option();
@@ -316,7 +316,7 @@ main (int argc, char** argv)
         else if (i->opt->lopt == "prebundle")
             conf.prebundle_file = i->arg;
         else if (i->opt->lopt == "feature-noise")
-            conf.feature_noise = i->get_arg<float>();
+            conf.feature_noise_stddev = i->get_arg<float>();
         else
             throw std::invalid_argument("Unexpected option");
     }

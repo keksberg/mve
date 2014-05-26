@@ -65,9 +65,9 @@ public:
     std::vector<math::Vec3uc> colors;
 
 private:
-    void compute_sift (mve::ByteImage::ConstPtr image, float noise);
-    void compute_surf (mve::ByteImage::ConstPtr image, float noise);
-    math::Vec2f calc_noise (float noise);
+    void compute_sift (mve::ByteImage::ConstPtr image, float noise_stddev);
+    void compute_surf (mve::ByteImage::ConstPtr image, float noise_stddev);
+    math::Vec2f calc_noise (float noise_stddev);
 
 private:
     Options opts;

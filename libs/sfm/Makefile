@@ -3,7 +3,7 @@ TARGET := libmve_sfm.a
 include ${MVE_ROOT}/Makefile.inc
 
 SSE_FLAGS ?= -msse2 -msse3
-CXXFLAGS += -I${MVE_ROOT}/libs ${OPENMP} ${SSE_FLAGS}
+CXXFLAGS += -I${MVE_ROOT}/libs ${OPENMP} ${SSE_FLAGS} -std=c++0x
 LDLIBS += -lpng -ltiff -ljpeg
 
 SOURCES := $(wildcard [^_]*.cc)

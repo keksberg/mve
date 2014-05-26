@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <random>
 
 #include "sfm/feature_set.h"
 
@@ -50,14 +51,15 @@ FeatureSet::compute_features (mve::ByteImage::Ptr image, float noise)
 }
 
 math::Vec2f
-FeatureSet::calc_noise (float noise)
+FeatureSet::calc_noise (float noise_stddev)
 {
-    // TODO draw random samples from normal distribution with variance = noise
-    return math::Vec2f(noise);
+    std::default_random_engine generator;
+    std::normal_distribution<float> distribution(0.0f, noise_stddev);
+    return math::Vec2f(distribution(generator), distribution(generator));
 }
 
 void
-FeatureSet::compute_sift (mve::ByteImage::ConstPtr image, float noise)
+FeatureSet::compute_sift (mve::ByteImage::ConstPtr image, float noise_stddev)
 {
     /* Compute features. */
     Sift sift(this->opts.sift_opts);
@@ -78,13 +80,13 @@ FeatureSet::compute_sift (mve::ByteImage::ConstPtr image, float noise)
         Sift::Descriptor const& d = descr[i];
 
         std::copy(d.data.begin(), d.data.end(), ptr);
-        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise);
+        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise_stddev);
         image->linear_at(d.x, d.y, this->colors[offset + i].begin());
     }
 }
 
 void
-FeatureSet::compute_surf (mve::ByteImage::ConstPtr image, float noise)
+FeatureSet::compute_surf (mve::ByteImage::ConstPtr image, float noise_stddev)
 {
     /* Compute features. */
     Surf surf(this->opts.surf_opts);
@@ -105,7 +107,7 @@ FeatureSet::compute_surf (mve::ByteImage::ConstPtr image, float noise)
         Surf::Descriptor const& d = descr[i];
 
         std::copy(d.data.begin(), d.data.end(), ptr);
-        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise);
+        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise_stddev);
         image->linear_at(d.x, d.y, this->colors[offset + i].begin());
     }
 }
