@@ -35,7 +35,7 @@ namespace
 }  /* namespace */
 
 void
-FeatureSet::compute_features (mve::ByteImage::Ptr image)
+FeatureSet::compute_features (mve::ByteImage::Ptr image, float noise)
 {
     this->colors.clear();
     this->positions.clear();
@@ -44,13 +44,20 @@ FeatureSet::compute_features (mve::ByteImage::Ptr image)
 
     /* Make sure these are in the right order. Matching relies on it. */
     if (this->opts.feature_types & FEATURE_SIFT)
-        this->compute_sift(image);
+        this->compute_sift(image, noise);
     if (this->opts.feature_types & FEATURE_SURF)
-        this->compute_surf(image);
+        this->compute_surf(image, noise);
+}
+
+math::Vec2f
+FeatureSet::calc_noise (float noise)
+{
+    // TODO draw random samples from normal distribution with variance = noise
+    return math::Vec2f(noise);
 }
 
 void
-FeatureSet::compute_sift (mve::ByteImage::ConstPtr image)
+FeatureSet::compute_sift (mve::ByteImage::ConstPtr image, float noise)
 {
     /* Compute features. */
     Sift sift(this->opts.sift_opts);
@@ -71,13 +78,13 @@ FeatureSet::compute_sift (mve::ByteImage::ConstPtr image)
         Sift::Descriptor const& d = descr[i];
 
         std::copy(d.data.begin(), d.data.end(), ptr);
-        this->positions[offset + i] = math::Vec2f(d.x, d.y);
+        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise);
         image->linear_at(d.x, d.y, this->colors[offset + i].begin());
     }
 }
 
 void
-FeatureSet::compute_surf (mve::ByteImage::ConstPtr image)
+FeatureSet::compute_surf (mve::ByteImage::ConstPtr image, float noise)
 {
     /* Compute features. */
     Surf surf(this->opts.surf_opts);
@@ -98,7 +105,7 @@ FeatureSet::compute_surf (mve::ByteImage::ConstPtr image)
         Surf::Descriptor const& d = descr[i];
 
         std::copy(d.data.begin(), d.data.end(), ptr);
-        this->positions[offset + i] = math::Vec2f(d.x, d.y);
+        this->positions[offset + i] = math::Vec2f(d.x, d.y) + calc_noise(noise);
         image->linear_at(d.x, d.y, this->colors[offset + i].begin());
     }
 }

@@ -51,7 +51,7 @@ public:
      * Optionally, if the viewports argument is not NULL, the viewports
      * are initialized with descriptor data, positions and colors.
      */
-    void compute (mve::Scene::Ptr scene, ViewportList* viewports);
+    void compute (mve::Scene::Ptr scene, ViewportList* viewports, float noise = 0.0f);
 
 private:
     void estimate_focal_length (mve::View::Ptr view, Viewport* viewport) const;

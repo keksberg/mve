@@ -50,7 +50,7 @@ public:
     void set_options (Options const& options);
 
     /** Computes the features specified in the options. */
-    void compute_features (mve::ByteImage::Ptr image);
+    void compute_features (mve::ByteImage::Ptr image, float noise = 0);
     /** Matches all features yielding a single matching result. */
     void match (FeatureSet const& other, Matching::Result* result) const;
     /** Clean up descriptor data. */
@@ -65,8 +65,9 @@ public:
     std::vector<math::Vec3uc> colors;
 
 private:
-    void compute_sift (mve::ByteImage::ConstPtr image);
-    void compute_surf (mve::ByteImage::ConstPtr image);
+    void compute_sift (mve::ByteImage::ConstPtr image, float noise);
+    void compute_surf (mve::ByteImage::ConstPtr image, float noise);
+    math::Vec2f calc_noise (float noise);
 
 private:
     Options opts;
