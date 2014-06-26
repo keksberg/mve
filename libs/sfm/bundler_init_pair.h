@@ -43,6 +43,12 @@ public:
          * Produce status messages on the console.
          */
         bool verbose_output;
+
+        /**
+         * Search for initial pair only in first n frames.
+         * Disabled by default.
+         */
+        int only_first_frames;
     };
 
     struct Result
@@ -66,6 +72,7 @@ inline
 InitialPair::Options::Options (void)
     : max_homography_inliers(0.6f)
     , verbose_output(false)
+    , only_first_frames(-1)
 {
 }
 

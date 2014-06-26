@@ -31,11 +31,21 @@ InitialPair::compute (ViewportList const& viewports,
     if (this->opts.verbose_output)
         std::cout << "Sorting pairwise matches..." << std::endl;
 
-    std::vector<int> pairs(matching.size(), -1);
-    for (std::size_t i = 0; i < pairs.size(); ++i)
-        pairs[i] = i;
-    PairsComparator cmp(matching);
-    std::sort(pairs.begin(), pairs.end(), cmp);
+    std::vector<int> pairs;
+    if (this->opts.only_first_frames != -1)
+    {
+        for (std::size_t i = 0; i < matching.size(); ++i)
+            if (matching[i].view_1_id <= this->opts.only_first_frames)
+                pairs.push_back(i);
+    }
+    else
+    {
+        pairs.resize(matching.size(), -1);
+        for (std::size_t i = 0; i < pairs.size(); ++i)
+            pairs[i] = i;
+        PairsComparator cmp(matching);
+        std::sort(pairs.begin(), pairs.end(), cmp);
+    }
 
     /* Prepare homography RANSAC. */
     if (this->opts.verbose_output)
