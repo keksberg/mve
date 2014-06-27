@@ -76,6 +76,8 @@ FeatureSet::compute_sift (mve::ByteImage::ConstPtr image)
         sift.set_image(image);
         sift.process();
         descr = sift.get_descriptors();
+        if (this->opts.sift_storage_path.length() > 0)
+            write_sift_keyfile(sift);
     }
 
     /* Sort features by scale for low-res matching. */
@@ -136,6 +138,46 @@ FeatureSet::compute_surf (mve::ByteImage::ConstPtr image)
         this->positions[offset + i] = math::Vec2f(d.x, d.y);
         image->linear_at(d.x, d.y, this->colors[offset + i].begin());
     }
+}
+
+void
+FeatureSet::write_sift_keyfile (Sift const & sift)
+{
+    std::ostringstream filename;
+    filename << this->opts.sift_storage_path
+             << "/" << this->view_id_state++ << ".sift";
+    std::ofstream out(filename.str().c_str());
+    if (!out.good())
+        throw std::runtime_error("Error writing SIFT file.");
+
+    if (sift.get_descriptors().empty())
+    {
+        out << "0 0" << std::endl;
+        out.close();
+        return;
+    }
+
+    /* Write header. */
+    {
+        sfm::Sift::Descriptor const& first = sift.get_descriptors().front();
+        out << sift.get_descriptors().size() << " " << first.data.dim() << std::endl;
+    }
+
+    /* Write all descriptors. */
+    for (std::size_t i = 0; i < sift.get_descriptors().size(); ++i)
+    {
+        sfm::Sift::Descriptor const& desc(sift.get_descriptors()[i]);
+        float factor = std::pow(2.0f, (float)desc.orientation);
+        float kpx = factor * (desc.x + 0.5f) - 0.5f;
+        float kpy = factor * (desc.y + 0.5f) - 0.5f;
+        out << kpx << " " << kpy << " " << desc.scale
+            << " " << desc.orientation << std::endl << "   ";
+        for (int j = 0; j < 128; ++j)
+            out << " " << (int)(desc.data[j] * 255.0f);
+        out << std::endl;
+    }
+
+    out.close();
 }
 
 int

@@ -6,6 +6,7 @@
 #ifndef SFM_FEATURE_SET_HEADER
 #define SFM_FEATURE_SET_HEADER
 
+#include <fstream>
 #include <vector>
 
 #include "math/vector.h"
@@ -45,6 +46,7 @@ public:
         Surf::Options surf_opts;
         Matching::Options sift_matching_opts;
         Matching::Options surf_matching_opts;
+        std::string sift_storage_path;
     };
 
 public:
@@ -79,11 +81,13 @@ public:
 private:
     void compute_sift (mve::ByteImage::ConstPtr image);
     void compute_surf (mve::ByteImage::ConstPtr image);
+    void write_sift_keyfile (Sift const& sift);
 
 private:
     Options opts;
     int num_sift_descriptors;
     int num_surf_descriptors;
+    int view_id_state;
 #if DISCRETIZE_DESCRIPTORS
     util::AlignedMemory<unsigned short, 16> sift_descr;
     util::AlignedMemory<signed short, 16> surf_descr;
@@ -109,6 +113,7 @@ inline
 FeatureSet::FeatureSet (void)
     : num_sift_descriptors(0)
     , num_surf_descriptors(0)
+    , view_id_state(0)
 {
 }
 
@@ -117,6 +122,7 @@ FeatureSet::FeatureSet (Options const& options)
     : opts(options)
     , num_sift_descriptors(0)
     , num_surf_descriptors(0)
+    , view_id_state(0)
 {
 }
 
