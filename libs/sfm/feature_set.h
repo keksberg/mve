@@ -55,7 +55,7 @@ public:
     void set_options (Options const& options);
 
     /** Computes the features specified in the options. */
-    void compute_features (mve::ByteImage::Ptr image);
+    void compute_features (mve::ByteImage::Ptr image, std::size_t id);
 
     /** Matches all feature types yielding a single matching result. */
     void match (FeatureSet const& other, Matching::Result* result) const;
@@ -79,15 +79,14 @@ public:
     std::vector<math::Vec3uc> colors;
 
 private:
-    void compute_sift (mve::ByteImage::ConstPtr image);
+    void compute_sift (mve::ByteImage::ConstPtr image, std::size_t id);
     void compute_surf (mve::ByteImage::ConstPtr image);
-    void write_sift_keyfile (Sift const& sift);
+    void write_sift_keyfile (Sift const& sift, std::size_t id);
 
 private:
     Options opts;
     int num_sift_descriptors;
     int num_surf_descriptors;
-    int view_id_state;
 #if DISCRETIZE_DESCRIPTORS
     util::AlignedMemory<unsigned short, 16> sift_descr;
     util::AlignedMemory<signed short, 16> surf_descr;
@@ -113,7 +112,6 @@ inline
 FeatureSet::FeatureSet (void)
     : num_sift_descriptors(0)
     , num_surf_descriptors(0)
-    , view_id_state(0)
 {
 }
 
@@ -122,7 +120,6 @@ FeatureSet::FeatureSet (Options const& options)
     : opts(options)
     , num_sift_descriptors(0)
     , num_surf_descriptors(0)
-    , view_id_state(0)
 {
 }
 

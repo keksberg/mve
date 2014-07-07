@@ -52,7 +52,7 @@ namespace
 }  /* namespace */
 
 void
-FeatureSet::compute_features (mve::ByteImage::Ptr image)
+FeatureSet::compute_features (mve::ByteImage::Ptr image, std::size_t id)
 {
     this->colors.clear();
     this->positions.clear();
@@ -61,13 +61,13 @@ FeatureSet::compute_features (mve::ByteImage::Ptr image)
 
     /* Make sure these are in the right order. Matching relies on it. */
     if (this->opts.feature_types & FEATURE_SIFT)
-        this->compute_sift(image);
+        this->compute_sift(image, id);
     if (this->opts.feature_types & FEATURE_SURF)
         this->compute_surf(image);
 }
 
 void
-FeatureSet::compute_sift (mve::ByteImage::ConstPtr image)
+FeatureSet::compute_sift (mve::ByteImage::ConstPtr image, std::size_t id)
 {
     /* Compute features. */
     Sift::Descriptors descr;
@@ -77,7 +77,7 @@ FeatureSet::compute_sift (mve::ByteImage::ConstPtr image)
         sift.process();
         descr = sift.get_descriptors();
         if (this->opts.sift_storage_path.length() > 0)
-            write_sift_keyfile(sift);
+            write_sift_keyfile(sift, id);
     }
 
     /* Sort features by scale for low-res matching. */
@@ -141,11 +141,11 @@ FeatureSet::compute_surf (mve::ByteImage::ConstPtr image)
 }
 
 void
-FeatureSet::write_sift_keyfile (Sift const & sift)
+FeatureSet::write_sift_keyfile (Sift const & sift, std::size_t id)
 {
     std::ostringstream filename;
     filename << this->opts.sift_storage_path
-             << "/" << this->view_id_state++ << ".sift";
+             << "/" << util::string::get_filled(id, 4, '0') << ".sift";
     std::ofstream out(filename.str().c_str());
     if (!out.good())
         throw std::runtime_error("Error writing SIFT file.");
