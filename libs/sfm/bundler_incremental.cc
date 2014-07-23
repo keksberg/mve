@@ -509,8 +509,8 @@ Incremental::bundle_adjustment_intern (int single_camera_ba)
     else
         pba.SetNextBundleMode(pba::BUNDLE_FULL);
 
-    if (this->opts.ba_fixed_intrinsics)
-        pba.SetFixedIntrinsics(true);
+    pba.SetNextTimeBudget(0);
+    pba.SetFixedIntrinsics(this->opts.fixed_intrinsics);
 
     pba.GetInternalConfig()->__verbose_cg_iteration = false;
     pba.GetInternalConfig()->__verbose_level = -1;
