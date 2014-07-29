@@ -10,6 +10,7 @@
 #include <limits>
 
 #include "math/defines.h"
+#include "math/vector.h"
 #include "sfm/defines.h"
 #include "sfm/nearest_neighbor.h"
 
@@ -43,6 +44,13 @@ public:
          * Disabled by default.
          */
         float distance_threshold;
+
+        /**
+         * Does not match descriptors with feature pixel distances larger than
+         * this value. Defaults to 20.0. Pixel distance only is used if feature
+         * positions are provided for matching.
+         */
+        float pixel_distance_threshold;
     };
 
     /**
@@ -69,7 +77,9 @@ public:
     oneway_match (Matching::Options const& options,
         T const* set_1, std::size_t set_1_size,
         T const* set_2, std::size_t set_2_size,
-        std::vector<int>* result);
+        std::vector<int>* result,
+        std::vector<math::Vec2f>* set_1_pos = NULL,
+        std::vector<math::Vec2f>* set_2_pos = NULL);
 
     /**
      * Matches all elements in set 1 to all elements in set 2 and vice versa.
@@ -81,7 +91,9 @@ public:
     twoway_match (Options const& options,
         T const* set_1, std::size_t set_1_size,
         T const* set_2, std::size_t set_2_size,
-        Result* matches);
+        Result* matches,
+        std::vector<math::Vec2f>* set_1_pos = NULL,
+        std::vector<math::Vec2f>* set_2_pos = NULL);
 
     /**
      * This function removes inconsistent matches.
@@ -113,7 +125,9 @@ void
 Matching::oneway_match (Matching::Options const& options,
     T const* set_1, std::size_t set_1_size,
     T const* set_2, std::size_t set_2_size,
-    std::vector<int>* result)
+    std::vector<int>* result,
+    std::vector<math::Vec2f>* set_1_pos,
+    std::vector<math::Vec2f>* set_2_pos)
 {
     result->clear();
     result->resize(set_1_size, -1);
@@ -129,6 +143,10 @@ Matching::oneway_match (Matching::Options const& options,
 #pragma omp parallel for
     for (std::size_t i = 0; i < set_1_size; ++i)
     {
+        if (set_1_pos != NULL && set_2_pos != NULL)
+        {
+            // TODO
+        }
         typename NearestNeighbor<T>::Result nn_result;
         T const* query_pointer = set_1 + i * options.descriptor_length;
         nn.find(query_pointer, &nn_result);
@@ -147,7 +165,9 @@ void
 Matching::twoway_match (Matching::Options const& options,
     T const* set_1, std::size_t set_1_size,
     T const* set_2, std::size_t set_2_size,
-    Matching::Result* matches)
+    Matching::Result* matches,
+    std::vector<math::Vec2f>* set_1_pos,
+    std::vector<math::Vec2f>* set_2_pos)
 {
     Matching::oneway_match(options, set_1, set_1_size,
         set_2, set_2_size, &matches->matches_1_2);
