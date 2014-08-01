@@ -17,7 +17,14 @@ void
 Matching::compute (ViewportList const& viewports,
     PairwiseMatching* pairwise_matching)
 {
-    std::size_t num_pairs = viewports.size() * (viewports.size() - 1) / 2;
+    std::size_t num_pairs = 0;
+    if (this->opts.match_num_previous_frames > 0)
+        num_pairs = viewports.size() * this->opts.match_num_previous_frames -
+            (this->opts.match_num_previous_frames - 1) *
+            (this->opts.match_num_previous_frames - 2) / 2;
+    else
+        num_pairs = viewports.size() * (viewports.size() - 1) / 2;
+
     std::size_t current_pair = 0;
 
     if (this->progress != NULL)
@@ -62,6 +69,72 @@ Matching::compute (ViewportList const& viewports,
             TwoViewMatching& matching = pairwise_matching->back();
             matching.view_1_id = i;
             matching.view_2_id = j;
+            std::swap(matching.matches, matches);
+        }
+    }
+
+    std::cout << "Found a total of " << pairwise_matching->size()
+        << " matching image pairs." << std::endl;
+}
+
+void
+Matching::compute_additional (ViewportList const& viewports,
+    std::vector<std::vector<std::size_t> > additional_matches,
+    PairwiseMatching* pairwise_matching)
+{
+    if (viewports.size() != additional_matches.size())
+        throw std::invalid_argument("Arguments have to have the same size!");
+
+    std::size_t num_pairs = 0;
+    for (std::size_t i = 0; i < additional_matches.size(); ++i)
+        num_pairs += additional_matches[i].size();
+    std::size_t current_pair = 0;
+
+    if (this->progress != NULL)
+    {
+        this->progress->num_total = num_pairs;
+        this->progress->num_done = 0;
+    }
+
+    for (std::size_t i = 0; i < additional_matches.size(); ++i)
+    {
+        for (std::size_t j = 0; j < additional_matches[i].size(); ++j)
+        {
+            std::size_t idx = additional_matches[i][j];
+            if (idx > i)
+            {
+                additional_matches[idx].push_back(i);
+                continue;
+            }
+
+            current_pair += 1;
+            if (this->progress != NULL)
+                this->progress->num_done += 1;
+
+            if (idx == i || idx >= (i - this->opts.match_num_previous_frames))
+                continue;
+
+            FeatureSet const& view_1 = viewports[i].features;
+            FeatureSet const& view_2 = viewports[idx].features;
+            if (view_1.positions.empty() || view_2.positions.empty())
+                continue;
+
+            /* Debug output. */
+            int percent = current_pair * 100 / num_pairs;
+            std::cout << "Processing pair " << i << ","
+                << idx << " (" << percent << "%)..." << std::endl;
+
+            /* Match the views. */
+            CorrespondenceIndices matches;
+            this->two_view_matching(view_1, view_2, &matches);
+            if (matches.empty())
+                continue;
+
+            /* Successful two view matching. Add the pair. */
+            pairwise_matching->push_back(TwoViewMatching());
+            TwoViewMatching& matching = pairwise_matching->back();
+            matching.view_1_id = i;
+            matching.view_2_id = idx;
             std::swap(matching.matches, matches);
         }
     }

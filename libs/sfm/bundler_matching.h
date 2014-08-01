@@ -79,6 +79,16 @@ public:
     void compute (ViewportList const& viewports,
         PairwiseMatching* pairwise_matching);
 
+    /**
+     * Computes the pairwise matching between all views and the given
+     * corresponding list of matching views per view.
+     * Computation requires both descriptor data and 2D feature positions
+     * in the viewports.
+     */
+    void compute_additional (ViewportList const& viewports,
+        std::vector<std::vector<std::size_t> > additional_matches,
+        PairwiseMatching* pairwise_matching);
+
 private:
     void two_view_matching (FeatureSet const& view_1, FeatureSet const& view_2,
         CorrespondenceIndices* matches);
