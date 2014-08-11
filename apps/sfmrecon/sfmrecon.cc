@@ -45,6 +45,7 @@ struct AppSettings
     int video_matching;
     float track_error_thres_factor;
     float new_track_error_thres;
+    bool use_ceres_solver;
 };
 
 void
@@ -252,6 +253,7 @@ sfm_reconstruct (AppSettings const& conf)
     //incremental_opts.min_triangulation_angle = MATH_DEG2RAD(1.0);
     incremental_opts.ba_fixed_intrinsics = conf.fixed_intrinsics;
     incremental_opts.verbose_output = true;
+    incremental_opts.use_ceres_solver = conf.use_ceres_solver;
 
     sfm::bundler::Incremental incremental(incremental_opts);
     incremental.initialize(&viewports, &tracks);
@@ -412,6 +414,7 @@ main (int argc, char** argv)
     args.add_option('\0', "fixed-intrinsics", false, "Do not optimize camera intrinsics");
     args.add_option('\0', "track-error-thres", true, "Error threshold for new tracks [10]");
     args.add_option('\0', "track-thres-factor", true, "Error threshold factor for tracks [25]");
+    args.add_option('\0', "use-ceres-solver", false, "Use Ceres Solver for bundle adjustment");
     args.parse(argc, argv);
 
     /* Setup defaults. */
@@ -429,6 +432,7 @@ main (int argc, char** argv)
     conf.fixed_intrinsics = false;
     conf.track_error_thres_factor = 25.0f;
     conf.new_track_error_thres = 10.0f;
+    conf.use_ceres_solver = false;
 
     /* General settings. */
     for (util::ArgResult const* i = args.next_option();
@@ -460,6 +464,8 @@ main (int argc, char** argv)
             conf.new_track_error_thres = i->get_arg<float>();
         else if (i->opt->lopt == "track-thres-factor")
             conf.track_error_thres_factor = i->get_arg<float>();
+        else if (i->opt->lopt == "use-ceres-solver")
+            conf.use_ceres_solver = true;
         else
             throw std::invalid_argument("Unexpected option");
     }
