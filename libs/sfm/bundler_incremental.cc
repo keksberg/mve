@@ -658,34 +658,37 @@ struct ReprojectionError {
       : observed_x(observed_x), observed_y(observed_y) {}
 
   template <typename T>
-  bool operator()(const T* const camera,
+  bool operator()(const T* const camera_ext,
+                  const T* const camera_int,
                   const T* const point,
                   T* residuals) const {
-    // camera[0,1,2] are the angle-axis rotation.
+    // camera_ext[0,1,2] are the angle-axis rotation.
     T p[3];
-    ceres::AngleAxisRotatePoint(camera, point, p);
+    ceres::AngleAxisRotatePoint(camera_ext, point, p);
 
     if (p[2] < 0.0)
     {
         std::cout << "############################" << std::endl;
         std::cout << "##  point behind camera.  ##" << std::endl;
         std::cout << "############################" << std::endl;
-        return false;
+//        return false;
+//        residuals[0] = T(0.0);
+//        residuals[1] = T(0.0);
+//        return true;
     }
 
-    // camera[3,4,5] are the translation.
-    p[0] += camera[3];
-    p[1] += camera[4];
-    p[2] += camera[5];
+    p[0] += camera_ext[3];
+    p[1] += camera_ext[4];
+    p[2] += camera_ext[5];
 
     // Compute the center of distortion.
-    const T& focal = camera[6];
+    const T& focal = camera_int[0];
     T xp = p[0] / p[2];
     T yp = p[1] / p[2];
 
     // Apply second and fourth order radial distortion.
-    const T& l1 = camera[7];
-    //const T& l2 = camera[8];
+    const T& l1 = camera_int[1];
+    //const T& l2 = camera_int[2];
     const T l2 = T(0.0);
     T r2 = xp*xp + yp*yp;
     T distortion = T(1.0) + r2 * (l1 + l2 * r2);
@@ -709,8 +712,7 @@ struct ReprojectionError {
   // the client code.
   static ceres::CostFunction* Create(const double observed_x,
                                      const double observed_y) {
-    //return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 9, 3>(
-      return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 8, 3>(
+      return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 2, 3>(
                 new ReprojectionError(observed_x, observed_y)));
   }
 
@@ -725,13 +727,13 @@ struct CeresCam
     double f;
     double radial[2];
     bool fixed;
-    double* begin (void)
+    double* begin_ext (void)
     {
         return R;
     }
-    double* end (void)
+    double* begin_int (void)
     {
-        return R + 9;
+        return &f;
     }
 };
 
@@ -751,7 +753,8 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
 
         CameraPose const& pose = this->cameras[i];
         CeresCam cam;
-        ceres::RotationMatrixToAngleAxis(pose.R.begin(), cam.R);
+        ceres::RotationMatrixToAngleAxis(
+            ceres::RowMajorAdapter3x3(pose.R.begin()), cam.R);
         std::copy(pose.t.begin(), pose.t.end(), cam.t);
         cam.f = pose.get_focal_length();
         cam.radial[0] = this->viewports->at(i).radial_distortion;
@@ -805,6 +808,18 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
             point[0] = f2d[0] - static_cast<double>(view.width) / 2.0;
             point[1] = f2d[1] - static_cast<double>(view.height) / 2.0;
 
+            // check if point is behind camera
+            CameraPose const& pose = this->cameras[view_id];
+            math::Vec3d const& point_3d = track.pos;
+            math::Vec3d x = (pose.R * point_3d + pose.t);
+            if (x[2] < 0.0)
+            {
+                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
+                std::cerr << "%% point is behind camera %%" << std::endl;
+                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+
             ba_2d_points.push_back(point);
             ba_track_ids.push_back(ba_tracks_mapping[i]);
             ba_cam_ids.push_back(ba_cams_mapping[view_id]);
@@ -821,10 +836,12 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         if (true)
             loss_function = new ceres::HuberLoss(1.0);
 
-        double* camera = ba_cams[ba_cam_ids[i]].begin();
+        double* camera_ext = ba_cams[ba_cam_ids[i]].begin_ext();
+        double* camera_int = ba_cams[ba_cam_ids[i]].begin_int();
         double* point = ba_tracks[ba_track_ids[i]].begin();
 
-        problem.AddResidualBlock(cost_function, loss_function, camera, point);
+        problem.AddResidualBlock(cost_function, loss_function,
+                                 camera_ext, camera_int, point);
 
         // Bundle adjust only motion if single camera requested
         if (single_camera_ba >= 0)
@@ -832,7 +849,14 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
 
         // Bundle adjust only requested camera
         if (ba_cams[ba_cam_ids[i]].fixed)
-            problem.SetParameterBlockConstant(camera);
+        {
+            problem.SetParameterBlockConstant(camera_ext);
+            problem.SetParameterBlockConstant(camera_int);
+        }
+
+        // Set fixed instrinsics if requested
+        if (this->opts.ba_fixed_intrinsics)
+            problem.SetParameterBlockConstant(camera_int);
     }
 
     /* Set bundle adjustment options (TODO). */
@@ -840,9 +864,11 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
 
     // http://ceres-solver.org/faqs.html#solving
     options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
+    //options.linear_solver_type = ceres::ITERATIVE_SCHUR;
 
-    // options.gradient_tolerance = 1e-16;
-    // options.function_tolerance = 1e-16;
+    options.gradient_tolerance = 1e-10;
+    options.function_tolerance = 1e-6;
+    options.max_num_iterations = 100;
 
     /* Run bundle adjustment. */
     ceres::Solver::Summary summary;
@@ -860,7 +886,8 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         Viewport& view = this->viewports->at(i);
         CeresCam const& cam = ba_cams[ba_cam_counter];
         std::copy(cam.t, cam.t + 3, pose.t.begin());
-        ceres::AngleAxisToRotationMatrix(cam.R, pose.R.begin());
+        ceres::AngleAxisToRotationMatrix(cam.R,
+            ceres::RowMajorAdapter3x3(pose.R.begin()));
 
         if (this->opts.verbose_output && single_camera_ba < 0)
         {
