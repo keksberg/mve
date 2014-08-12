@@ -665,6 +665,14 @@ struct ReprojectionError {
     T p[3];
     ceres::AngleAxisRotatePoint(camera, point, p);
 
+    if (p[2] < 0.0)
+    {
+        std::cout << "############################" << std::endl;
+        std::cout << "##  point behind camera.  ##" << std::endl;
+        std::cout << "############################" << std::endl;
+        return false;
+    }
+
     // camera[3,4,5] are the translation.
     p[0] += camera[3];
     p[1] += camera[4];
@@ -678,9 +686,9 @@ struct ReprojectionError {
     // Apply second and fourth order radial distortion.
     const T& l1 = camera[7];
     //const T& l2 = camera[8];
+    const T l2 = T(0.0);
     T r2 = xp*xp + yp*yp;
-    //T distortion = T(1.0) + r2 * (l1 + l2 * r2);
-    T distortion = T(1.0) + l1 * r2 * r2;
+    T distortion = T(1.0) + r2 * (l1 + l2 * r2);
 
     // Compute final projected point position.
     T predicted_x = focal * distortion * xp;
@@ -715,8 +723,7 @@ struct CeresCam
     double R[3]; // axis angle rotation
     double t[3];
     double f;
-    //double radial[2];
-    double radial;
+    double radial[2];
     bool fixed;
     double* begin (void)
     {
@@ -724,8 +731,7 @@ struct CeresCam
     }
     double* end (void)
     {
-        //return R + 9;
-        return R + 8;
+        return R + 9;
     }
 };
 
@@ -748,9 +754,8 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         ceres::RotationMatrixToAngleAxis(pose.R.begin(), cam.R);
         std::copy(pose.t.begin(), pose.t.end(), cam.t);
         cam.f = pose.get_focal_length();
-        //cam.radial[0] = this->viewports->at(i).radial_distortion;
-        cam.radial = this->viewports->at(i).radial_distortion;
-        //cam.radial[1] = 0.0; // TODO use 2nd coeff.
+        cam.radial[0] = this->viewports->at(i).radial_distortion;
+        cam.radial[1] = 0.0; // TODO use 2nd coeff.
         cam.fixed = false;
 
         ba_cams_mapping[i] = ba_cams.size();
@@ -813,7 +818,7 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         cost_function = ReprojectionError::Create(proj[0], proj[1]);
 
         ceres::LossFunction* loss_function = NULL;
-        if (false)
+        if (true)
             loss_function = new ceres::HuberLoss(1.0);
 
         double* camera = ba_cams[ba_cam_ids[i]].begin();
@@ -835,6 +840,9 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
 
     // http://ceres-solver.org/faqs.html#solving
     options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
+
+    // options.gradient_tolerance = 1e-16;
+    // options.function_tolerance = 1e-16;
 
     /* Run bundle adjustment. */
     ceres::Solver::Summary summary;
@@ -858,15 +866,13 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         {
             std::cout << "Camera " << i << ", focal length: "
                 << pose.get_focal_length() << " -> " << cam.f
-                //<< ", distortion: " << cam.radial[0]
-                   << ", distortion: " << cam.radial << std::endl;
-                //<< "," << cam.radial[1] << std::endl;
+                << ", distortion: " << cam.radial[0]
+                << "," << cam.radial[1] << std::endl;
         }
 
         pose.K[0] = cam.f;
         pose.K[4] = cam.f;
-        //view.radial_distortion = cam.radial[0];
-        view.radial_distortion = cam.radial;
+        view.radial_distortion = cam.radial[0];
         ba_cam_counter += 1;
     }
 
