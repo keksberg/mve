@@ -55,7 +55,8 @@ public:
     void set_options (Options const& options);
 
     /** Computes the features specified in the options. */
-    void compute_features (mve::ByteImage::Ptr image, std::size_t id);
+    void compute_features (mve::ByteImage::Ptr image,
+                           std::vector<Sift::Descriptors>* descriptors = NULL);
 
     /** Matches all feature types yielding a single matching result. */
     void match (FeatureSet const& other, Matching::Result* result) const;
@@ -79,9 +80,9 @@ public:
     std::vector<math::Vec3uc> colors;
 
 private:
-    void compute_sift (mve::ByteImage::ConstPtr image, std::size_t id);
+    void compute_sift (mve::ByteImage::ConstPtr image,
+                       std::vector<Sift::Descriptors>* descriptors);
     void compute_surf (mve::ByteImage::ConstPtr image);
-    void write_sift_keyfile (Sift const& sift, std::size_t id);
 
 private:
     Options opts;

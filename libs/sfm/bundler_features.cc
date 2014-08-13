@@ -8,7 +8,8 @@ SFM_NAMESPACE_BEGIN
 SFM_BUNDLER_NAMESPACE_BEGIN
 
 void
-Features::compute (mve::Scene::Ptr scene, ViewportList* viewports)
+Features::compute (mve::Scene::Ptr scene, ViewportList* viewports,
+                   std::vector<Sift::Descriptors>* descriptors)
 {
     if (scene == NULL)
         throw std::invalid_argument("NULL scene given");
@@ -51,7 +52,7 @@ Features::compute (mve::Scene::Ptr scene, ViewportList* viewports)
         /* Compute features for view. */
         Viewport* viewport = &viewports->at(i);
         viewport->features.set_options(this->opts.feature_options);
-        viewport->features.compute_features(image, i);
+        viewport->features.compute_features(image, descriptors);
         viewport->width = image->width();
         viewport->height = image->height();
 
