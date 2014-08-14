@@ -34,6 +34,7 @@ Matching::compute (ViewportList const& viewports,
     }
 
     pairwise_matching->clear();
+    #pragma omp parallel for schedule(dynamic, 10)
     for (std::size_t i = 0; i < viewports.size(); ++i)
     {
         std::size_t start = 0;
@@ -55,6 +56,7 @@ Matching::compute (ViewportList const& viewports,
 
             /* Debug output. */
             int percent = current_pair * 100 / num_pairs;
+            #pragma omp critical
             std::cout << "Processing pair " << i << ","
                 << j << " (" << percent << "%)..." << std::endl;
 
@@ -65,11 +67,14 @@ Matching::compute (ViewportList const& viewports,
                 continue;
 
             /* Successful two view matching. Add the pair. */
-            pairwise_matching->push_back(TwoViewMatching());
-            TwoViewMatching& matching = pairwise_matching->back();
-            matching.view_1_id = i;
-            matching.view_2_id = j;
-            std::swap(matching.matches, matches);
+            #pragma omp critical
+            {
+                pairwise_matching->push_back(TwoViewMatching());
+                TwoViewMatching& matching = pairwise_matching->back();
+                matching.view_1_id = i;
+                matching.view_2_id = j;
+                std::swap(matching.matches, matches);
+            }
         }
     }
 
@@ -96,6 +101,7 @@ Matching::compute_additional (ViewportList const& viewports,
         this->progress->num_done = 0;
     }
 
+    #pragma omp parallel for schedule(dynamic, 10)
     for (std::size_t i = 0; i < additional_matches.size(); ++i)
     {
         for (std::size_t j = 0; j < additional_matches[i].size(); ++j)
@@ -121,6 +127,7 @@ Matching::compute_additional (ViewportList const& viewports,
 
             /* Debug output. */
             int percent = current_pair * 100 / num_pairs;
+            #pragma omp critical
             std::cout << "Processing pair " << i << ","
                 << idx << " (" << percent << "%)..." << std::endl;
 
@@ -131,11 +138,14 @@ Matching::compute_additional (ViewportList const& viewports,
                 continue;
 
             /* Successful two view matching. Add the pair. */
-            pairwise_matching->push_back(TwoViewMatching());
-            TwoViewMatching& matching = pairwise_matching->back();
-            matching.view_1_id = i;
-            matching.view_2_id = idx;
-            std::swap(matching.matches, matches);
+            #pragma omp critical
+            {
+                pairwise_matching->push_back(TwoViewMatching());
+                TwoViewMatching& matching = pairwise_matching->back();
+                matching.view_1_id = i;
+                matching.view_2_id = idx;
+                std::swap(matching.matches, matches);
+            }
         }
     }
 
