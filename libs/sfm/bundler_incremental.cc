@@ -666,44 +666,20 @@ struct ReprojectionError {
     T p[3];
     ceres::AngleAxisRotatePoint(camera_ext, point, p);
 
-    if (p[2] < 0.0)
-    {
-        std::cout << "############################" << std::endl;
-        std::cout << "##  point behind camera.  ##" << std::endl;
-        std::cout << "############################" << std::endl;
-//        return false;
-//        residuals[0] = T(0.0);
-//        residuals[1] = T(0.0);
-//        return true;
-    }
-
+    // translation
     p[0] += camera_ext[3];
     p[1] += camera_ext[4];
     p[2] += camera_ext[5];
 
-    // Compute the center of distortion.
-    const T& focal = camera_int[0];
-    T xp = p[0] / p[2];
-    T yp = p[1] / p[2];
+    // radial distortion factor
+    T rd = T(1.0) + camera_int[1] * T(observed_x*observed_x + observed_y*observed_y);
 
-    // Apply second and fourth order radial distortion.
-    const T& l1 = camera_int[1];
-    //const T& l2 = camera_int[2];
-    const T l2 = T(0.0);
-    T r2 = xp*xp + yp*yp;
-    T distortion = T(1.0) + r2 * (l1 + l2 * r2);
-
-    // Compute final projected point position.
-    T predicted_x = focal * distortion * xp;
-    T predicted_y = focal * distortion * yp;
+    // projection factor
+    const T& f_p2 = camera_int[0] / p[2];
 
     // The error is the difference between the predicted and observed position.
-    residuals[0] = predicted_x - T(observed_x);
-    residuals[1] = predicted_y - T(observed_y);
-
-//    std::cout << "predicted:" << std::endl << predicted_x << std::endl
-//              << predicted_y << std::endl << "observed:" << std::endl
-//              << observed_x << std::endl << observed_y << std::endl;
+    residuals[0] = observed_x * rd - p[0] * f_p2;
+    residuals[1] = observed_y * rd - p[1] * f_p2;
 
     return true;
   }
