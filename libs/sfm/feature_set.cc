@@ -53,7 +53,7 @@ namespace
 
 void
 FeatureSet::compute_features (mve::ByteImage::Ptr image,
-                              std::vector<Sift::Descriptors>* descriptors)
+                              Sift::Descriptors* descriptors)
 {
     this->colors.clear();
     this->positions.clear();
@@ -69,7 +69,7 @@ FeatureSet::compute_features (mve::ByteImage::Ptr image,
 
 void
 FeatureSet::compute_sift (mve::ByteImage::ConstPtr image,
-                          std::vector<Sift::Descriptors>* descriptors)
+                          Sift::Descriptors* descriptors)
 {
     /* Compute features. */
     Sift::Descriptors descr;
@@ -78,15 +78,17 @@ FeatureSet::compute_sift (mve::ByteImage::ConstPtr image,
         sift.set_image(image);
         sift.process();
         descr = sift.get_descriptors();
-        if (descriptors != NULL)
-        {
-            #pragma omp critical
-            descriptors->push_back(descr);
-        }
     }
 
     /* Sort features by scale for low-res matching. */
     std::sort(descr.begin(), descr.end(), compare_scale<sfm::Sift::Descriptor>);
+
+    /* save original descriptor if requested. */
+    if (descriptors != NULL)
+    {
+        descriptors->resize(descr.size());
+        std::copy(descr.begin(), descr.end(), descriptors->begin());
+    }
 
     /* Prepare and copy to data structures. */
     std::size_t offset = this->positions.size();

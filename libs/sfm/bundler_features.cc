@@ -52,7 +52,7 @@ Features::compute (mve::Scene::Ptr scene, ViewportList* viewports,
         /* Compute features for view. */
         Viewport* viewport = &viewports->at(i);
         viewport->features.set_options(this->opts.feature_options);
-        viewport->features.compute_features(image, descriptors);
+        viewport->features.compute_features(image, &descriptors->at(i));
         viewport->width = image->width();
         viewport->height = image->height();
 

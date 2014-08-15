@@ -56,7 +56,7 @@ public:
 
     /** Computes the features specified in the options. */
     void compute_features (mve::ByteImage::Ptr image,
-                           std::vector<Sift::Descriptors>* descriptors = NULL);
+                           Sift::Descriptors *descriptors = NULL);
 
     /** Matches all feature types yielding a single matching result. */
     void match (FeatureSet const& other, Matching::Result* result) const;
@@ -81,7 +81,7 @@ public:
 
 private:
     void compute_sift (mve::ByteImage::ConstPtr image,
-                       std::vector<Sift::Descriptors>* descriptors);
+                       Sift::Descriptors *descriptors);
     void compute_surf (mve::ByteImage::ConstPtr image);
 
 private:
