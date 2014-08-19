@@ -7,6 +7,7 @@
 #define SFM_BUNDLER_MATCHING_HEADER
 
 #include <vector>
+#include <set>
 #include <string>
 
 #include "sfm/matching.h"
@@ -86,7 +87,7 @@ public:
      * in the viewports.
      */
     void compute_additional (ViewportList const& viewports,
-        std::vector<std::vector<std::size_t> > additional_matches,
+        std::vector<std::set<std::size_t> > additional_matches,
         PairwiseMatching* pairwise_matching);
 
 private:

@@ -34,7 +34,7 @@ Matching::compute (ViewportList const& viewports,
     }
 
     pairwise_matching->clear();
-    #pragma omp parallel for schedule(dynamic, 10)
+    #pragma omp parallel for schedule(dynamic)
     for (std::size_t i = 0; i < viewports.size(); ++i)
     {
         std::size_t start = 0;
@@ -84,7 +84,7 @@ Matching::compute (ViewportList const& viewports,
 
 void
 Matching::compute_additional (ViewportList const& viewports,
-    std::vector<std::vector<std::size_t> > additional_matches,
+    std::vector<std::set<std::size_t> > additional_matches,
     PairwiseMatching* pairwise_matching)
 {
     if (viewports.size() != additional_matches.size())
@@ -101,18 +101,29 @@ Matching::compute_additional (ViewportList const& viewports,
         this->progress->num_done = 0;
     }
 
-    #pragma omp parallel for schedule(dynamic, 10)
+    /* Resort matches to avoid duplicates */
     for (std::size_t i = 0; i < additional_matches.size(); ++i)
     {
-        for (std::size_t j = 0; j < additional_matches[i].size(); ++j)
+        for (std::set<std::size_t>::iterator j = additional_matches[i].begin();
+            j != additional_matches[i].end(); )
         {
-            std::size_t idx = additional_matches[i][j];
-            if (idx > i)
+            if (*j > i)
             {
-                additional_matches[idx].push_back(i);
-                continue;
+                additional_matches[*j].insert(i);
+                additional_matches[i].erase(j++);
             }
+            else
+                ++j;
+        }
+    }
 
+    #pragma omp parallel for schedule(dynamic)
+    for (std::size_t i = 0; i < additional_matches.size(); ++i)
+    {
+        for (std::set<std::size_t>::iterator j = additional_matches[i].begin();
+            j != additional_matches[i].end(); ++j)
+        {
+            const std::size_t idx = *j;
             current_pair += 1;
             if (this->progress != NULL)
                 this->progress->num_done += 1;
