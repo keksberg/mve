@@ -46,7 +46,6 @@ public:
         Surf::Options surf_opts;
         Matching::Options sift_matching_opts;
         Matching::Options surf_matching_opts;
-        std::string sift_storage_path;
     };
 
 public:
