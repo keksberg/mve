@@ -1,6 +1,9 @@
 #include <limits>
 #include <iostream>
 
+#include <ceres/ceres.h>
+#include <ceres/rotation.h>
+
 #include "math/matrix_tools.h"
 #include "sfm/triangulate.h"
 #include "sfm/pba_cpu.h"
@@ -480,7 +483,10 @@ Incremental::triangulate_new_tracks (void)
 void
 Incremental::bundle_adjustment_full (void)
 {
-    this->bundle_adjustment_intern(-1);
+    if(this->opts.use_ceres_solver)
+        this->bundle_adjustment_ceres_intern(-1);
+    else
+        this->bundle_adjustment_intern(-1);
 }
 
 /* ---------------------------------------------------------------- */
@@ -488,7 +494,10 @@ Incremental::bundle_adjustment_full (void)
 void
 Incremental::bundle_adjustment_single_cam (int view_id)
 {
-    this->bundle_adjustment_intern(view_id);
+    if(this->opts.use_ceres_solver)
+        this->bundle_adjustment_ceres_intern(view_id);
+    else
+        this->bundle_adjustment_intern(view_id);
 }
 
 /* ---------------------------------------------------------------- */
@@ -636,6 +645,252 @@ Incremental::bundle_adjustment_intern (int single_camera_ba)
         std::copy(point.xyz, point.xyz + 3, track.pos.begin());
 
         pba_track_counter += 1;
+    }
+}
+
+/* ---------------------------------------------------------------- */
+
+/*
+ * The camera is parameterized using 9 parameters: 3 for rotation,
+ * 3 for translation, 1 for focal length and 2 for radial distortion.
+ */
+struct ReprojectionError {
+  ReprojectionError(double observed_x, double observed_y)
+      : observed_x(observed_x), observed_y(observed_y) {}
+
+  template <typename T>
+  bool operator()(const T* const camera_ext,
+                  const T* const camera_int,
+                  const T* const point,
+                  T* residuals) const {
+    // camera_ext[0,1,2] are the angle-axis rotation.
+    T p[3];
+    ceres::AngleAxisRotatePoint(camera_ext, point, p);
+
+    // translation
+    p[0] += camera_ext[3];
+    p[1] += camera_ext[4];
+    p[2] += camera_ext[5];
+
+    // radial distortion factor
+    T rd = T(1.0) + camera_int[1] * T(observed_x*observed_x + observed_y*observed_y);
+
+    // projection factor
+    const T& f_p2 = camera_int[0] / p[2];
+
+    // The error is the difference between the predicted and observed position.
+    residuals[0] = observed_x * rd - p[0] * f_p2;
+    residuals[1] = observed_y * rd - p[1] * f_p2;
+
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from
+  // the client code.
+  static ceres::CostFunction* Create(const double observed_x,
+                                     const double observed_y) {
+      return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 2, 3>(
+                new ReprojectionError(observed_x, observed_y)));
+  }
+
+  double observed_x;
+  double observed_y;
+};
+
+struct CeresCam
+{
+    double R[3]; // axis angle rotation
+    double t[3];
+    double f;
+    double radial[2];
+    bool fixed;
+    double* begin_ext (void)
+    {
+        return R;
+    }
+    double* begin_int (void)
+    {
+        return &f;
+    }
+};
+
+void
+Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
+{
+    /* Build bundle adjustment problem. */
+    ceres::Problem problem;
+
+    /* Prepare camera data. */
+    std::vector<CeresCam> ba_cams;
+    std::vector<int> ba_cams_mapping(this->cameras.size(), -1);
+    for (std::size_t i = 0; i < this->cameras.size(); ++i)
+    {
+        if (!this->cameras[i].is_valid())
+            continue;
+
+        CameraPose const& pose = this->cameras[i];
+        CeresCam cam;
+        ceres::RotationMatrixToAngleAxis(
+            ceres::RowMajorAdapter3x3(pose.R.begin()), cam.R);
+        std::copy(pose.t.begin(), pose.t.end(), cam.t);
+        cam.f = pose.get_focal_length();
+        cam.radial[0] = this->viewports->at(i).radial_distortion;
+        cam.radial[1] = 0.0; // TODO use 2nd coeff.
+        cam.fixed = false;
+
+        ba_cams_mapping[i] = ba_cams.size();
+
+        if (single_camera_ba >= 0 && (int)i != single_camera_ba)
+            cam.fixed = true;
+
+        ba_cams.push_back(cam);
+    }
+
+    /* Prepare tracks data. */
+    std::vector<math::Vec3d> ba_tracks;
+    std::vector<int> ba_tracks_mapping(this->tracks->size(), -1);
+    for (std::size_t i = 0; i < this->tracks->size(); ++i)
+    {
+        Track const& track = this->tracks->at(i);
+        if (!track.is_valid())
+            continue;
+
+        math::Vec3d point;
+        std::copy(track.pos.begin(), track.pos.end(), point.begin());
+        ba_tracks_mapping[i] = ba_tracks.size();
+        ba_tracks.push_back(point);
+    }
+
+    /* Prepare feature positions in the images. (a.k.a. observations) */
+    std::vector<math::Vec2d> ba_2d_points;
+    std::vector<int> ba_track_ids;
+    std::vector<int> ba_cam_ids;
+    for (std::size_t i = 0; i < this->tracks->size(); ++i)
+    {
+        Track const& track = this->tracks->at(i);
+        if (!track.is_valid())
+            continue;
+
+        for (std::size_t j = 0; j < track.features.size(); ++j)
+        {
+            int const view_id = track.features[j].view_id;
+            if (!this->cameras[view_id].is_valid())
+                continue;
+
+            int const feature_id = track.features[j].feature_id;
+            Viewport const& view = this->viewports->at(view_id);
+            math::Vec2f f2d = view.features.positions[feature_id];
+
+            math::Vec2d point;
+            point[0] = f2d[0] - static_cast<double>(view.width) / 2.0;
+            point[1] = f2d[1] - static_cast<double>(view.height) / 2.0;
+
+            // check if point is behind camera
+            CameraPose const& pose = this->cameras[view_id];
+            math::Vec3d const& point_3d = track.pos;
+            math::Vec3d x = (pose.R * point_3d + pose.t);
+            if (x[2] < 0.0)
+            {
+                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
+                std::cerr << "%% point is behind camera %%" << std::endl;
+                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+
+            ba_2d_points.push_back(point);
+            ba_track_ids.push_back(ba_tracks_mapping[i]);
+            ba_cam_ids.push_back(ba_cams_mapping[view_id]);
+        }
+    }
+
+    for (std::size_t i = 0; i < ba_2d_points.size(); ++i)
+    {
+        ceres::CostFunction* cost_function;
+        math::Vec2d const& proj = ba_2d_points[i];
+        cost_function = ReprojectionError::Create(proj[0], proj[1]);
+
+        ceres::LossFunction* loss_function = NULL;
+        if (true)
+            loss_function = new ceres::HuberLoss(1.0);
+
+        double* camera_ext = ba_cams[ba_cam_ids[i]].begin_ext();
+        double* camera_int = ba_cams[ba_cam_ids[i]].begin_int();
+        double* point = ba_tracks[ba_track_ids[i]].begin();
+
+        problem.AddResidualBlock(cost_function, loss_function,
+                                 camera_ext, camera_int, point);
+
+        // Bundle adjust only motion if single camera requested
+        if (single_camera_ba >= 0)
+            problem.SetParameterBlockConstant(point);
+
+        // Bundle adjust only requested camera
+        if (ba_cams[ba_cam_ids[i]].fixed)
+        {
+            problem.SetParameterBlockConstant(camera_ext);
+            problem.SetParameterBlockConstant(camera_int);
+        }
+
+        // Set fixed instrinsics if requested
+        if (this->opts.ba_fixed_intrinsics)
+            problem.SetParameterBlockConstant(camera_int);
+    }
+
+    /* Set bundle adjustment options (TODO). */
+    ceres::Solver::Options options;
+
+    // http://ceres-solver.org/faqs.html#solving
+    options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
+    //options.linear_solver_type = ceres::ITERATIVE_SCHUR;
+
+    options.gradient_tolerance = 1e-10;
+    options.function_tolerance = 1e-6;
+    options.max_num_iterations = 100;
+
+    /* Run bundle adjustment. */
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.FullReport() << std::endl;
+
+    /* Transfer camera info and track positions back. */
+    std::size_t ba_cam_counter = 0;
+    for (std::size_t i = 0; i < this->cameras.size(); ++i)
+    {
+        if (!this->cameras[i].is_valid())
+            continue;
+
+        CameraPose& pose = this->cameras[i];
+        Viewport& view = this->viewports->at(i);
+        CeresCam const& cam = ba_cams[ba_cam_counter];
+        std::copy(cam.t, cam.t + 3, pose.t.begin());
+        ceres::AngleAxisToRotationMatrix(cam.R,
+            ceres::RowMajorAdapter3x3(pose.R.begin()));
+
+        if (this->opts.verbose_output && single_camera_ba < 0)
+        {
+            std::cout << "Camera " << i << ", focal length: "
+                << pose.get_focal_length() << " -> " << cam.f
+                << ", distortion: " << cam.radial[0]
+                << "," << cam.radial[1] << std::endl;
+        }
+
+        pose.K[0] = cam.f;
+        pose.K[4] = cam.f;
+        view.radial_distortion = cam.radial[0];
+        ba_cam_counter += 1;
+    }
+
+    std::size_t ba_track_counter = 0;
+    for (std::size_t i = 0; i < this->tracks->size(); ++i)
+    {
+        Track& track = this->tracks->at(i);
+        if (!track.is_valid())
+            continue;
+
+        math::Vec3d const& point = ba_tracks[ba_track_counter];
+        std::copy(point.begin(), point.end(), track.pos.begin());
+
+        ba_track_counter += 1;
     }
 }
 

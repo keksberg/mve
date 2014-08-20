@@ -31,5 +31,6 @@ macx {
 win32 {
     LIBS += -lGLEW
 }
+LIBS += -lglog -lgflags -lceres -lblas -llapack -lcholmod -lsuitesparseconfig -lcolamd -lamd -lcamd
 
 exists(umve.priv.pro) : include(umve.priv.pro)

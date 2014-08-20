@@ -4,6 +4,7 @@ include ${MVE_ROOT}/Makefile.inc
 
 CXXFLAGS += -I${MVE_ROOT}/libs ${OPENMP}
 LDLIBS += -lpng -ltiff -ljpeg ${OPENMP}
+LDLIBS += -lglog -lgflags -lceres -lblas -llapack -lcholmod -lsuitesparseconfig -lcolamd -lamd -lcamd
 
 SOURCES := $(wildcard [^_]*.cc)
 ${TARGET}: ${SOURCES:.cc=.o} libmve_sfm.a libmve.a libmve_util.a

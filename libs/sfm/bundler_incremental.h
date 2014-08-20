@@ -44,6 +44,8 @@ public:
         bool ba_fixed_intrinsics;
         /** Produce status messages on the console. */
         bool verbose_output;
+        /** Use Ceres Solver for bundle adjustment. */
+        bool use_ceres_solver;
     };
 
 public:
@@ -87,6 +89,7 @@ public:
 
 private:
     void bundle_adjustment_intern (int single_camera_ba);
+    void bundle_adjustment_ceres_intern (int single_camera_ba);
     void delete_track (int track_id);
 
 private:
@@ -103,8 +106,9 @@ Incremental::Options::Options (void)
     : track_error_threshold_factor(25.0)
     , new_track_error_threshold(10.0)
     , min_triangulation_angle(MATH_DEG2RAD(1.0))
-    , verbose_output(false)
     , ba_fixed_intrinsics(false)
+    , verbose_output(false)
+    , use_ceres_solver(false)
 {
 }
 
