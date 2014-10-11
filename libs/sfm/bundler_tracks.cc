@@ -25,6 +25,7 @@ Tracks::compute (PairwiseMatching const& matching,
 
     std::size_t track_counter = 0;
     std::size_t num_conflicts = 0;
+    std::size_t num_matches = 0;
     for (std::size_t i = 0; i < matching.size(); ++i)
     {
         TwoViewMatching const& tvm = matching[i];
@@ -68,11 +69,13 @@ Tracks::compute (PairwiseMatching const& matching,
                  */
                 num_conflicts += 1;
             }
+            num_matches += 1;
         }
     }
 
     std::cerr << "Warning: " << num_conflicts
-        << " conflicts while propagating track IDs." << std::endl;
+        << " conflicts while propagating track IDs. ("
+        << 100.0f * num_conflicts / num_matches << "%)" << std::endl;
 
     /* Create tracks. */
     tracks->clear();

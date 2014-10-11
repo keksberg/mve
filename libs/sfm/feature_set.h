@@ -85,6 +85,7 @@ private:
 
 private:
     Options opts;
+public:
     int num_sift_descriptors;
     int num_surf_descriptors;
 #if DISCRETIZE_DESCRIPTORS

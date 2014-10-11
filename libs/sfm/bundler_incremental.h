@@ -7,6 +7,7 @@
 #define SFM_BUNDLER_INCREMENTAL_HEADER
 
 #include "mve/bundle.h"
+#include "mve/scene.h"
 #include "sfm/fundamental.h"
 #include "sfm/ransac_fundamental.h"
 #include "sfm/ransac_pose.h"
@@ -60,6 +61,9 @@ public:
      */
     void initialize (ViewportList* viewports, TrackList* tracks);
 
+    /** Set camera poses from existing MVE scene. */
+    void set_camera_poses (mve::Scene::Ptr scene, std::string image_name);
+
     /** Returns whether the incremental SfM has been initialized. */
     bool is_initialized (void) const;
 
@@ -97,6 +101,10 @@ private:
     ViewportList* viewports;
     TrackList* tracks;
     std::vector<CameraPose> cameras;
+    std::vector<CameraPose> alternate_cameras;
+
+public:
+    std::vector<std::pair<std::size_t, std::size_t> >* tracks_matching;
 };
 
 /* ------------------------ Implementation ------------------------ */
@@ -117,6 +125,7 @@ Incremental::Incremental (Options const& options)
     : opts(options)
     , viewports(NULL)
     , tracks(NULL)
+    , tracks_matching(NULL)
 {
 }
 

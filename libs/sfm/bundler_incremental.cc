@@ -9,6 +9,8 @@
 #include "sfm/pba_cpu.h"
 #include "sfm/bundler_incremental.h"
 
+#include <omp.h>
+
 SFM_NAMESPACE_BEGIN
 SFM_BUNDLER_NAMESPACE_BEGIN
 
@@ -20,12 +22,43 @@ Incremental::initialize (ViewportList* viewports, TrackList* tracks)
 
     this->cameras.clear();
     this->cameras.resize(viewports->size());
+    this->alternate_cameras.resize(viewports->size());
 
     /* Set track positions to invalid state. */
     for (std::size_t i = 0; i < tracks->size(); ++i)
     {
         Track& track = tracks->at(i);
         track.invalidate();
+    }
+}
+
+void
+Incremental::set_camera_poses (mve::Scene::Ptr scene, std::string image_name)
+{
+    if (scene->get_views().size() != this->cameras.size())
+        throw std::invalid_argument("Invalid view count.");
+    for (std::size_t i = 0; i < this->cameras.size(); ++i)
+    {
+        // TODO make robust
+        mve::View::Ptr view = scene->get_view_by_id(i);
+        if (view == NULL)
+        {
+            std::cout << "view " << i << " does not exist" << std::endl;
+            continue;
+        }
+        mve::CameraInfo const& cam_info = view->get_camera();
+        CameraPose & cam_pose = this->cameras[i];
+        float width = view->get_image(image_name)->width();
+        float height = view->get_image(image_name)->height();
+        float maxdim = std::max(width, height);
+        math::Matrix3f K;
+        cam_info.fill_calibration(K.begin(), width, height);
+        std::copy(cam_info.rot, cam_info.rot+9, cam_pose.R.begin());
+        std::copy(cam_info.trans, cam_info.trans+3, cam_pose.t.begin());
+        std::copy(K.begin(), K.end(), cam_pose.K.begin());
+        sfm::bundler::Viewport & vp = this->viewports->at(i);
+        vp.focal_length = cam_info.flen;
+        vp.radial_distortion = cam_info.dist[0] / MATH_POW2(cam_info.flen);
     }
 }
 
@@ -313,6 +346,69 @@ bool Incremental::reconstruct_next_view (int view_id)
     if (3 * ransac_result.inliers.size() < corr.size())
         return false;
 
+    /* P3P: second run... */
+    Correspondences2D3D new_corr;
+    for (std::size_t i = 0; i < corr.size(); ++i)
+    {
+        std::vector<int> const& v = ransac_result.inliers;
+        if (std::find(v.begin(), v.end(), i) != v.end())
+            continue;
+        new_corr.push_back(corr[i]);
+    }
+
+    RansacPoseP3P::Result ransac_2nd_result;
+    if (new_corr.size() > 5)
+    {
+        RansacPoseP3P ransac_2nd(this->opts.pose_p3p_opts);
+        ransac_2nd.estimate(new_corr, temp_camera.K, &ransac_2nd_result);
+        std::string debug_filename = "ransac.txt";
+        std::ofstream debug_file(debug_filename.c_str(), std::ofstream::app);
+        debug_file << view_id << " "
+                   << ransac_result.inliers.size() << " " << corr.size()
+                   << " " << ransac_2nd_result.inliers.size() << " "
+                   << new_corr.size() << std::endl;
+        debug_file.close();
+    }
+
+#if USE_P3P_FOR_POSE
+    /* In the P3P case, just use the known K and computed R and t. */
+    this->cameras[view_id] = temp_camera;
+    this->cameras[view_id].R = ransac_result.pose.delete_col(3);
+    this->cameras[view_id].t = ransac_result.pose.col(3);
+    /* Store alternate camera, if available. */
+    if (ransac_2nd_result.inliers.size() != 0)
+    {
+        this->alternate_cameras[view_id] = temp_camera;
+        this->alternate_cameras[view_id].R = ransac_result.pose.delete_col(3);
+        this->alternate_cameras[view_id].t = ransac_result.pose.col(3);
+    }
+#else
+    /* With 6-point, set full pose recovering R and t using known K. */
+    math::Matrix<double, 3, 4> p_matrix = ransac_result.p_matrix;
+    this->cameras[view_id] = temp_camera;
+    this->cameras[view_id].set_from_p_and_known_k(p_matrix);
+#endif
+
+//    /* Compute and dump reprojection error of the track. */
+//    std::string filename = "reprojection.csv";
+//    std::ofstream reprojection(filename.c_str(), std::ofstream::app);
+//    for (std::size_t j = 0; j < track_ids.size(); ++j)
+//    {
+//        Correspondence2D3D const& c = corr[j];
+//        math::Vec3d p3d(&c.p3d[0]);
+//        math::Vec2d p2d(&c.p2d[0]);
+//        math::Vec3d x = this->cameras[view_id].R *
+//            p3d + this->cameras[view_id].t;
+//        x = this->cameras[view_id].K * x;
+//        math::Vec2d x2d(x[0] / x[2], x[1] / x[2]);
+//        double square_error = (p2d - x2d).square_norm();
+//        if (j == track_ids.size() - 1)
+//            reprojection << square_error << std::endl;
+//        else
+//            reprojection << square_error << ";";
+//    }
+//    reprojection.close();
+
     /* Remove outliers from tracks and tracks from viewport. */
     int removed_outliers = 0;
     for (std::size_t i = 0; i < ransac_result.inliers.size(); ++i)
@@ -327,18 +423,6 @@ bool Incremental::reconstruct_next_view (int view_id)
     }
     track_ids.clear();
     feature_ids.clear();
-
-#if USE_P3P_FOR_POSE
-    /* In the P3P case, just use the known K and computed R and t. */
-    this->cameras[view_id] = temp_camera;
-    this->cameras[view_id].R = ransac_result.pose.delete_col(3);
-    this->cameras[view_id].t = ransac_result.pose.col(3);
-#else
-    /* With 6-point, set full pose recovering R and t using known K. */
-    math::Matrix<double, 3, 4> p_matrix = ransac_result.p_matrix;
-    this->cameras[view_id] = temp_camera;
-    this->cameras[view_id].set_from_p_and_known_k(p_matrix);
-#endif
 
     if (this->opts.verbose_output)
     {
@@ -697,6 +781,26 @@ struct ReprojectionError {
   double observed_y;
 };
 
+struct TrackDistanceError {
+  template <typename T>
+  bool operator()(const T* const point1,
+                  const T* const point2,
+                  T* residuals) const {
+
+    for (std::size_t i = 0; i < 3; ++i)
+        residuals[i] = (point1[i] - point2[i]) * T(100000.0);
+
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from
+  // the client code.
+  static ceres::CostFunction* Create(void) {
+      return (new ceres::AutoDiffCostFunction<TrackDistanceError, 3, 3, 3>(
+                new TrackDistanceError()));
+  }
+};
+
 struct CeresCam
 {
     double R[3]; // axis angle rotation
@@ -717,6 +821,8 @@ struct CeresCam
 void
 Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
 {
+    std::cout << "preparing bundle adjustment ..." << std::endl;
+
     /* Build bundle adjustment problem. */
     ceres::Problem problem;
 
@@ -767,42 +873,54 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
     std::vector<int> ba_cam_ids;
     for (std::size_t i = 0; i < this->tracks->size(); ++i)
     {
-        Track const& track = this->tracks->at(i);
-        if (!track.is_valid())
+        std::vector<Track*> multiple_tracks;
+        multiple_tracks.push_back(&this->tracks->at(i));
+
+        if (!multiple_tracks[0]->is_valid())
             continue;
 
-        for (std::size_t j = 0; j < track.features.size(); ++j)
+//        if (this->tracks_matching)
+//            for (std::size_t j = 0; j < this->tracks_matching->size(); ++j)
+//                if (this->tracks_matching->at(j).first == i)
+//                    multiple_tracks.push_back(
+//                        &this->tracks->at(tracks_matching->at(j).second));
+
+        for (std::size_t k = 0; k < multiple_tracks.size(); ++k)
         {
-            int const view_id = track.features[j].view_id;
-            if (!this->cameras[view_id].is_valid())
-                continue;
-
-            int const feature_id = track.features[j].feature_id;
-            Viewport const& view = this->viewports->at(view_id);
-            math::Vec2f f2d = view.features.positions[feature_id];
-
-            math::Vec2d point;
-            point[0] = f2d[0] - static_cast<double>(view.width) / 2.0;
-            point[1] = f2d[1] - static_cast<double>(view.height) / 2.0;
-
-            // check if point is behind camera
-            CameraPose const& pose = this->cameras[view_id];
-            math::Vec3d const& point_3d = track.pos;
-            math::Vec3d x = (pose.R * point_3d + pose.t);
-            if (x[2] < 0.0)
+            Track const& track = *multiple_tracks[k];
+            for (std::size_t j = 0; j < track.features.size(); ++j)
             {
-                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
-                std::cerr << "%% point is behind camera %%" << std::endl;
-                std::cerr << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << std::endl;
-                std::exit(EXIT_FAILURE);
-            }
+                int const view_id = track.features[j].view_id;
+                if (!this->cameras[view_id].is_valid())
+                    continue;
 
-            ba_2d_points.push_back(point);
-            ba_track_ids.push_back(ba_tracks_mapping[i]);
-            ba_cam_ids.push_back(ba_cams_mapping[view_id]);
+                int const feature_id = track.features[j].feature_id;
+                Viewport const& view = this->viewports->at(view_id);
+                math::Vec2f f2d = view.features.positions[feature_id];
+
+                math::Vec2d point;
+                point[0] = f2d[0] - static_cast<double>(view.width) / 2.0;
+                point[1] = f2d[1] - static_cast<double>(view.height) / 2.0;
+
+                // check if point is behind camera
+                CameraPose const& pose = this->cameras[view_id];
+                math::Vec3d const& point_3d = track.pos;
+                math::Vec3d x = (pose.R * point_3d + pose.t);
+                if (x[2] < 0.0)
+                {
+                    std::cerr << "%% point is behind camera %%" << std::endl;
+                    continue;
+                }
+
+                ba_2d_points.push_back(point);
+                ba_track_ids.push_back(ba_tracks_mapping[i]);
+                ba_cam_ids.push_back(ba_cams_mapping[view_id]);
+            }
         }
+
     }
 
+    std::cout << "cauchy" << std::endl;
     for (std::size_t i = 0; i < ba_2d_points.size(); ++i)
     {
         ceres::CostFunction* cost_function;
@@ -810,8 +928,9 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         cost_function = ReprojectionError::Create(proj[0], proj[1]);
 
         ceres::LossFunction* loss_function = NULL;
-        if (true)
+        if (false)
             loss_function = new ceres::HuberLoss(1.0);
+        loss_function = new ceres::CauchyLoss(1.0);
 
         double* camera_ext = ba_cams[ba_cam_ids[i]].begin_ext();
         double* camera_int = ba_cams[ba_cam_ids[i]].begin_int();
@@ -821,7 +940,7 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
                                  camera_ext, camera_int, point);
 
         // Bundle adjust only motion if single camera requested
-        if (single_camera_ba >= 0)
+        if (single_camera_ba >= 0 || single_camera_ba == -3) // TODO hack
             problem.SetParameterBlockConstant(point);
 
         // Bundle adjust only requested camera
@@ -832,20 +951,49 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         }
 
         // Set fixed instrinsics if requested
-        if (this->opts.ba_fixed_intrinsics)
+        if (this->opts.ba_fixed_intrinsics && single_camera_ba != -2) // TODO hack
             problem.SetParameterBlockConstant(camera_int);
+    }
+
+    if (this->tracks_matching)
+    {
+        std::cout << "Adding loop closing constraints!" << std::endl;
+        for (std::size_t i = 0; i < this->tracks_matching->size(); ++i)
+        {
+            std::size_t first = this->tracks_matching->at(i).first;
+            std::size_t second = this->tracks_matching->at(i).second;
+            double* point1 = ba_tracks[ba_tracks_mapping[first]].begin();
+            double* point2 = ba_tracks[ba_tracks_mapping[second]].begin();
+            ceres::CostFunction* cost_function;
+            cost_function = TrackDistanceError::Create();
+
+            ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
+
+            problem.AddResidualBlock(cost_function, loss_function,
+                                     point1, point2);
+        }
     }
 
     /* Set bundle adjustment options (TODO). */
     ceres::Solver::Options options;
 
     // http://ceres-solver.org/faqs.html#solving
-    options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
-    //options.linear_solver_type = ceres::ITERATIVE_SCHUR;
+    if (ba_cams.size() < 500)
+        options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
+    else if (ba_cams.size() < 1500)
+        options.linear_solver_type = ceres::SPARSE_SCHUR;
+    else
+        options.linear_solver_type = ceres::ITERATIVE_SCHUR;
 
     options.gradient_tolerance = 1e-10;
     options.function_tolerance = 1e-6;
-    options.max_num_iterations = 100;
+    options.max_num_iterations = 500;
+
+    options.num_threads = omp_get_num_procs();
+    options.num_linear_solver_threads = omp_get_num_procs();
+    std::cout << "Using " << options.num_threads << " threads." << std::endl;
+
+    std::cout << "running bundle adjustment ..." << std::endl;
 
     /* Run bundle adjustment. */
     ceres::Solver::Summary summary;

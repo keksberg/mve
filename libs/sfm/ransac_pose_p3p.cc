@@ -91,6 +91,7 @@ RansacPoseP3P::find_inliers (Correspondences2D3D const& corresp,
 {
     inliers->resize(0);
     double const square_threshold = MATH_POW2(this->opts.threshold);
+    //#pragma omp parallel for
     for (std::size_t i = 0; i < corresp.size(); ++i)
     {
         Correspondence2D3D const& c = corresp[i];
@@ -99,7 +100,10 @@ RansacPoseP3P::find_inliers (Correspondences2D3D const& corresp,
         double square_error = MATH_POW2(p2d[0] / p2d[2] - c.p2d[0])
             + MATH_POW2(p2d[1] / p2d[2] - c.p2d[1]);
         if (square_error < square_threshold)
+        {
+            //#pragma omp critical
             inliers->push_back(i);
+        }
     }
 }
 
