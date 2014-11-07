@@ -32,10 +32,20 @@ InitialPair::compute (ViewportList const& viewports,
         std::cout << "Sorting pairwise matches..." << std::endl;
 
     std::vector<int> pairs;
-    if (this->opts.only_first_frames != -1)
+    if (this->opts.only_first_frames > 0)
     {
         for (std::size_t i = 0; i < matching.size(); ++i)
-            if (matching[i].view_1_id <= this->opts.only_first_frames)
+            if ((matching[i].view_1_id == 0 &&
+                matching[i].view_2_id <= this->opts.only_first_frames) ||
+                (matching[i].view_2_id == 0 &&
+                matching[i].view_1_id <= this->opts.only_first_frames))
+                pairs.push_back(i);
+    }
+    else if (this->opts.only_first_frames < -1) //TODO
+    {
+        for (std::size_t i = 0; i < matching.size(); ++i)
+            if (abs(matching[i].view_1_id - matching[i].view_2_id) >
+                    -1 * this->opts.only_first_frames)
                 pairs.push_back(i);
     }
     else
@@ -54,15 +64,19 @@ InitialPair::compute (ViewportList const& viewports,
     this->opts.homography_opts.already_normalized = false;
     this->opts.homography_opts.threshold = 3.0f;
     RansacHomography homography_ransac(this->opts.homography_opts);
-    Correspondences correspondences;
+    bool found = false;
+    #pragma omp parallel for schedule(dynamic)
     for (std::size_t i = 0; i < pairs.size(); ++i)
     {
+        if (found)
+            continue;
+
         TwoViewMatching const& tvm = matching[pairs[i]];
         FeatureSet const& view1 = viewports[tvm.view_1_id].features;
         FeatureSet const& view2 = viewports[tvm.view_2_id].features;
 
         /* Prepare correspondences for RANSAC. */
-        correspondences.resize(tvm.matches.size());
+        Correspondences correspondences(tvm.matches.size());
         for (std::size_t j = 0; j < tvm.matches.size(); ++j)
         {
             Correspondence& c = correspondences[j];
@@ -82,6 +96,7 @@ InitialPair::compute (ViewportList const& viewports,
 
         if (this->opts.verbose_output)
         {
+            #pragma omp critical
             std::cout << "  Pair "
                 << "(" << tvm.view_1_id << "," << tvm.view_2_id << "): "
                 << num_matches << " matches, "
@@ -92,9 +107,13 @@ InitialPair::compute (ViewportList const& viewports,
 
         if (percentage < this->opts.max_homography_inliers)
         {
-            result->view_1_id = tvm.view_1_id;
-            result->view_2_id = tvm.view_2_id;
-            break;
+            #pragma omp critical
+            {
+                result->view_1_id = tvm.view_1_id;
+                result->view_2_id = tvm.view_2_id;
+                found = true;
+            //break;
+            }
         }
     }
 

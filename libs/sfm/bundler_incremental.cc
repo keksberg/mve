@@ -22,7 +22,6 @@ Incremental::initialize (ViewportList* viewports, TrackList* tracks)
 
     this->cameras.clear();
     this->cameras.resize(viewports->size());
-    this->alternate_cameras.resize(viewports->size());
 
     /* Set track positions to invalid state. */
     for (std::size_t i = 0; i < tracks->size(); ++i)
@@ -274,6 +273,8 @@ bool Incremental::reconstruct_next_view (int view_id)
     Viewport const& viewport = this->viewports->at(view_id);
     FeatureSet const& features = viewport.features;
 
+    alternate_camera.K.fill(0.0);
+
     /* Collect all 2D-3D correspondences. */
     Correspondences2D3D corr;
     std::vector<int> track_ids;
@@ -318,6 +319,9 @@ bool Incremental::reconstruct_next_view (int view_id)
         static_cast<float>(viewport.height) / 2.0f);
 
 #if USE_P3P_FOR_POSE
+    if (corr.size() < 3)
+        return false;
+
     /* Compute pose from 2D-3D correspondences using P3P. */
     RansacPoseP3P ransac(this->opts.pose_p3p_opts);
     RansacPoseP3P::Result ransac_result;
@@ -330,6 +334,9 @@ bool Incremental::reconstruct_next_view (int view_id)
     }
 
 #else
+    if (corr.size() < 6)
+        return false;
+
     /* Compute pose from 2D-3D correspondences using 6-point. */
     RansacPose ransac(this->opts.pose_opts);
     RansacPose::Result ransac_result;
@@ -342,8 +349,9 @@ bool Incremental::reconstruct_next_view (int view_id)
     }
 #endif
 
+    int const ratio = 3; // inliers have to be more than 1/2
     /* Cancel if inliers are below a threshold. */
-    if (3 * ransac_result.inliers.size() < corr.size())
+    if (ratio * ransac_result.inliers.size() < corr.size())
         return false;
 
     /* P3P: second run... */
@@ -355,7 +363,6 @@ bool Incremental::reconstruct_next_view (int view_id)
             continue;
         new_corr.push_back(corr[i]);
     }
-
     RansacPoseP3P::Result ransac_2nd_result;
     if (new_corr.size() > 5)
     {
@@ -363,11 +370,25 @@ bool Incremental::reconstruct_next_view (int view_id)
         ransac_2nd.estimate(new_corr, temp_camera.K, &ransac_2nd_result);
         std::string debug_filename = "ransac.txt";
         std::ofstream debug_file(debug_filename.c_str(), std::ofstream::app);
-        debug_file << view_id << " "
-                   << ransac_result.inliers.size() << " " << corr.size()
-                   << " " << ransac_2nd_result.inliers.size() << " "
-                   << new_corr.size() << std::endl;
+        debug_file << view_id << "," << ransac_result.inliers.size() << ","
+                   << corr.size() << "," << ransac_2nd_result.inliers.size()
+                   << "," << new_corr.size() << std::endl;
         debug_file.close();
+        if (ratio * ransac_2nd_result.inliers.size() >= new_corr.size())
+        {
+            std::cout << "Second RANSAC was successful for view "
+                      << view_id << "." << std::endl;
+            alternate_camera = temp_camera;
+            alternate_camera.R = ransac_2nd_result.pose.delete_col(3);
+            alternate_camera.t = ransac_2nd_result.pose.col(3);
+            std::string debug_fn = "ransac_info.txt";
+            std::ofstream info(debug_fn.c_str(), std::ofstream::app);
+            math::Vec3d const& t1 = ransac_result.pose.col(3);
+            math::Vec3d const& t2 = alternate_camera.t;
+            info << view_id << ","
+                 << t1[0] << "," << t1[1] << "," << t1[2] << ","
+                 << t2[0] << "," << t2[1] << "," << t2[2] << std::endl;
+        }
     }
 
 #if USE_P3P_FOR_POSE
@@ -375,13 +396,6 @@ bool Incremental::reconstruct_next_view (int view_id)
     this->cameras[view_id] = temp_camera;
     this->cameras[view_id].R = ransac_result.pose.delete_col(3);
     this->cameras[view_id].t = ransac_result.pose.col(3);
-    /* Store alternate camera, if available. */
-    if (ransac_2nd_result.inliers.size() != 0)
-    {
-        this->alternate_cameras[view_id] = temp_camera;
-        this->alternate_cameras[view_id].R = ransac_result.pose.delete_col(3);
-        this->alternate_cameras[view_id].t = ransac_result.pose.col(3);
-    }
 #else
     /* With 6-point, set full pose recovering R and t using known K. */
     math::Matrix<double, 3, 4> p_matrix = ransac_result.p_matrix;
@@ -413,6 +427,8 @@ bool Incremental::reconstruct_next_view (int view_id)
     int removed_outliers = 0;
     for (std::size_t i = 0; i < ransac_result.inliers.size(); ++i)
         track_ids[ransac_result.inliers[i]] = -1;
+//    for (std::size_t i = 0; i < ransac_2nd_result.inliers.size(); ++i)
+//        track_ids[ransac_2nd_result.inliers[i]] = -1;
     for (std::size_t i = 0; i < track_ids.size(); ++i)
     {
         if (track_ids[i] < 0)
@@ -610,9 +626,9 @@ Incremental::bundle_adjustment_intern (int single_camera_ba)
     pba.GetInternalConfig()->__verbose_function_time = false;
     pba.GetInternalConfig()->__verbose_allocation = false;
     pba.GetInternalConfig()->__verbose_sse = false;
-    //pba.GetInternalConfig()->__lm_max_iteration = 100;
+    pba.GetInternalConfig()->__lm_max_iteration = 500;
     //pba.GetInternalConfig()->__cg_min_iteration = 30;
-    //pba.GetInternalConfig()->__cg_max_iteration = 300;
+    pba.GetInternalConfig()->__cg_max_iteration = 500;
     //pba.GetInternalConfig()->__lm_delta_threshold = 1E-7;
     //pba.GetInternalConfig()->__lm_mse_threshold = 1E-2;
 
@@ -744,7 +760,8 @@ struct ReprojectionError {
 
   template <typename T>
   bool operator()(const T* const camera_ext,
-                  const T* const camera_int,
+                  const T* const camera_flen,
+                  const T* const camera_radial,
                   const T* const point,
                   T* residuals) const {
     // camera_ext[0,1,2] are the angle-axis rotation.
@@ -757,10 +774,10 @@ struct ReprojectionError {
     p[2] += camera_ext[5];
 
     // radial distortion factor
-    T rd = T(1.0) + camera_int[1] * T(observed_x*observed_x + observed_y*observed_y);
+    T rd = T(1.0) + camera_radial[0] * T(observed_x*observed_x + observed_y*observed_y);
 
     // projection factor
-    const T& f_p2 = camera_int[0] / p[2];
+    const T& f_p2 = camera_flen[0] / p[2];
 
     // The error is the difference between the predicted and observed position.
     residuals[0] = observed_x * rd - p[0] * f_p2;
@@ -773,13 +790,15 @@ struct ReprojectionError {
   // the client code.
   static ceres::CostFunction* Create(const double observed_x,
                                      const double observed_y) {
-      return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 2, 3>(
+      return (new ceres::AutoDiffCostFunction<ReprojectionError, 2, 6, 1, 1, 3>(
                 new ReprojectionError(observed_x, observed_y)));
   }
 
   double observed_x;
   double observed_y;
 };
+
+#define BA_WEIGHT 1000.0
 
 struct TrackDistanceError {
   template <typename T>
@@ -788,7 +807,7 @@ struct TrackDistanceError {
                   T* residuals) const {
 
     for (std::size_t i = 0; i < 3; ++i)
-        residuals[i] = (point1[i] - point2[i]) * T(100000.0);
+        residuals[i] = (point1[i] - point2[i]) * T(100.0 * BA_WEIGHT);
 
     return true;
   }
@@ -798,6 +817,26 @@ struct TrackDistanceError {
   static ceres::CostFunction* Create(void) {
       return (new ceres::AutoDiffCostFunction<TrackDistanceError, 3, 3, 3>(
                 new TrackDistanceError()));
+  }
+};
+
+struct CameraDistanceError {
+  template <typename T>
+  bool operator()(const T* const cam1,
+                  const T* const cam2,
+                  T* residuals) const {
+
+    for (std::size_t i = 0; i < 3; ++i)
+        residuals[i] = (cam1[i+3] - cam2[i+3]) * T(BA_WEIGHT * 10.0);
+
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from
+  // the client code.
+  static ceres::CostFunction* Create(void) {
+      return (new ceres::AutoDiffCostFunction<CameraDistanceError, 3, 6, 6>(
+                new CameraDistanceError()));
   }
 };
 
@@ -815,6 +854,14 @@ struct CeresCam
     double* begin_int (void)
     {
         return &f;
+    }
+    double* begin_flen (void)
+    {
+        return &f;
+    }
+    double* begin_radial (void)
+    {
+        return radial;
     }
 };
 
@@ -852,6 +899,22 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         ba_cams.push_back(cam);
     }
 
+//    if (this->alternate_camera.is_valid())
+//    {
+//        CameraPose const& pose = this->alternate_camera;
+//        CeresCam cam;
+//        ceres::RotationMatrixToAngleAxis(
+//            ceres::RowMajorAdapter3x3(pose.R.begin()), cam.R);
+//        std::copy(pose.t.begin(), pose.t.end(), cam.t);
+//        cam.f = pose.get_focal_length();
+//        cam.radial[0] = 0.0;
+//        cam.radial[1] = 0.0; // TODO use 2nd coeff.
+//        cam.fixed = false;
+
+//        ba_cams_mapping.push_back(ba_cams.size());
+//        ba_cams.push_back(cam);
+//    }
+
     /* Prepare tracks data. */
     std::vector<math::Vec3d> ba_tracks;
     std::vector<int> ba_tracks_mapping(this->tracks->size(), -1);
@@ -871,6 +934,8 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
     std::vector<math::Vec2d> ba_2d_points;
     std::vector<int> ba_track_ids;
     std::vector<int> ba_cam_ids;
+    std::vector<bool> ba_is_lc;
+    std::vector<std::pair<int, int> > ba_cam_constraints;
     for (std::size_t i = 0; i < this->tracks->size(); ++i)
     {
         std::vector<Track*> multiple_tracks;
@@ -879,11 +944,13 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         if (!multiple_tracks[0]->is_valid())
             continue;
 
-//        if (this->tracks_matching)
-//            for (std::size_t j = 0; j < this->tracks_matching->size(); ++j)
-//                if (this->tracks_matching->at(j).first == i)
-//                    multiple_tracks.push_back(
-//                        &this->tracks->at(tracks_matching->at(j).second));
+        if (this->tracks_matching)
+            for (std::size_t j = 0; j < this->tracks_matching->size(); ++j)
+                if (this->tracks_matching->at(j).first == i)
+                    multiple_tracks.push_back(
+                        &this->tracks->at(tracks_matching->at(j).second));
+
+        bool is_closure = multiple_tracks.size() > 1;
 
         for (std::size_t k = 0; k < multiple_tracks.size(); ++k)
         {
@@ -906,15 +973,26 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
                 CameraPose const& pose = this->cameras[view_id];
                 math::Vec3d const& point_3d = track.pos;
                 math::Vec3d x = (pose.R * point_3d + pose.t);
-                if (x[2] < 0.0)
+                if (!is_closure && x[2] < 0.0)
                 {
-                    std::cerr << "%% point is behind camera %%" << std::endl;
+                    //std::cerr << "%% point is behind camera %%" << std::endl;
                     continue;
                 }
 
                 ba_2d_points.push_back(point);
                 ba_track_ids.push_back(ba_tracks_mapping[i]);
                 ba_cam_ids.push_back(ba_cams_mapping[view_id]);
+                ba_is_lc.push_back(is_closure);
+
+//                if (this->alternate_camera.is_valid())
+//                {
+//                    ba_2d_points.push_back(point);
+//                    ba_track_ids.push_back(ba_tracks_mapping[i]);
+//                    ba_cam_ids.push_back(ba_cams_mapping.back());
+//                    ba_is_lc.push_back(is_closure);
+//                    ba_cam_constraints.push_back(std::make_pair(
+//                        ba_cams_mapping[view_id], ba_cams_mapping.back()));
+//                }
             }
         }
 
@@ -928,31 +1006,46 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
         cost_function = ReprojectionError::Create(proj[0], proj[1]);
 
         ceres::LossFunction* loss_function = NULL;
-        if (false)
-            loss_function = new ceres::HuberLoss(1.0);
-        loss_function = new ceres::CauchyLoss(1.0);
+        //loss_function = new ceres::HuberLoss(1.0);
+        if (ba_is_lc[i])
+            loss_function = new ceres::ScaledLoss(
+                        new ceres::HuberLoss(1.0),
+                        BA_WEIGHT, ceres::DO_NOT_TAKE_OWNERSHIP);
+        else
+            loss_function = new ceres::CauchyLoss(1.0);
 
         double* camera_ext = ba_cams[ba_cam_ids[i]].begin_ext();
-        double* camera_int = ba_cams[ba_cam_ids[i]].begin_int();
+        //double* camera_int = ba_cams[ba_cam_ids[i]].begin_int();
+        double* camera_flen = ba_cams[ba_cam_ids[i]].begin_flen();
+        double* camera_radial = ba_cams[ba_cam_ids[i]].begin_radial();
         double* point = ba_tracks[ba_track_ids[i]].begin();
 
         problem.AddResidualBlock(cost_function, loss_function,
-                                 camera_ext, camera_int, point);
+                                 camera_ext, camera_flen,
+                                 camera_radial, point);
 
         // Bundle adjust only motion if single camera requested
         if (single_camera_ba >= 0 || single_camera_ba == -3) // TODO hack
             problem.SetParameterBlockConstant(point);
 
+        if (single_camera_ba == -3)
+            problem.SetParameterBlockConstant(camera_flen);
+
         // Bundle adjust only requested camera
         if (ba_cams[ba_cam_ids[i]].fixed)
         {
             problem.SetParameterBlockConstant(camera_ext);
-            problem.SetParameterBlockConstant(camera_int);
+            problem.SetParameterBlockConstant(camera_flen);
+            problem.SetParameterBlockConstant(camera_radial);
         }
 
         // Set fixed instrinsics if requested
-        if (this->opts.ba_fixed_intrinsics && single_camera_ba != -2) // TODO hack
-            problem.SetParameterBlockConstant(camera_int);
+        if ((this->opts.ba_fixed_intrinsics && single_camera_ba != -2) // TODO hack
+                || ba_is_lc[i] || single_camera_ba == -4)
+        {
+            problem.SetParameterBlockConstant(camera_flen);
+            problem.SetParameterBlockConstant(camera_radial);
+        }
     }
 
     if (this->tracks_matching)
@@ -967,20 +1060,34 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
             ceres::CostFunction* cost_function;
             cost_function = TrackDistanceError::Create();
 
-            ceres::LossFunction* loss_function = new ceres::HuberLoss(1.0);
+            ceres::LossFunction* loss_function = new ceres::CauchyLoss(1.0);
 
             problem.AddResidualBlock(cost_function, loss_function,
                                      point1, point2);
         }
     }
 
+//    for (std::size_t i = 0; i < ba_cam_constraints.size(); ++i)
+//    {
+//        std::pair<int, int> const& pair = ba_cam_constraints[i];
+//        double* camera_ext_1 = ba_cams[pair.first].begin_ext();
+//        double* camera_ext_2 = ba_cams[pair.second].begin_ext();
+//        ceres::CostFunction* cost_function;
+//        cost_function = CameraDistanceError::Create();
+
+//        ceres::LossFunction* loss_function = new ceres::CauchyLoss(1.0);
+
+//        problem.AddResidualBlock(cost_function, loss_function,
+//                                 camera_ext_1, camera_ext_2);
+//    }
+
     /* Set bundle adjustment options (TODO). */
     ceres::Solver::Options options;
 
     // http://ceres-solver.org/faqs.html#solving
-    if (ba_cams.size() < 500)
-        options.linear_solver_type = ceres::DENSE_SCHUR; // up to 100 cams
-    else if (ba_cams.size() < 1500)
+    if (ba_cams.size() < 100)
+        options.linear_solver_type = ceres::DENSE_SCHUR;
+    else if (ba_cams.size() < 2000)
         options.linear_solver_type = ceres::SPARSE_SCHUR;
     else
         options.linear_solver_type = ceres::ITERATIVE_SCHUR;
@@ -988,6 +1095,7 @@ Incremental::bundle_adjustment_ceres_intern (int single_camera_ba)
     options.gradient_tolerance = 1e-10;
     options.function_tolerance = 1e-6;
     options.max_num_iterations = 500;
+    options.max_linear_solver_iterations = 500;
 
     options.num_threads = omp_get_num_procs();
     options.num_linear_solver_threads = omp_get_num_procs();

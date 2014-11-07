@@ -100,10 +100,10 @@ private:
     Options opts;
     ViewportList* viewports;
     TrackList* tracks;
-    std::vector<CameraPose> cameras;
-    std::vector<CameraPose> alternate_cameras;
 
 public:
+    std::vector<CameraPose> cameras;
+    CameraPose alternate_camera;
     std::vector<std::pair<std::size_t, std::size_t> >* tracks_matching;
 };
 
