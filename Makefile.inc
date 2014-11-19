@@ -1,7 +1,7 @@
 # Default values.
 CXX ?= g++
 CXXFEATURES ?= -funsafe-math-optimizations -fno-math-errno
-CXXFLAGS ?= -Wall -Wextra -Wundef -pedantic -g -Og ${CXXFEATURES}
+CXXFLAGS ?= -Wall -Wextra -Wundef -pedantic -g -O3 ${CXXFEATURES}
 
 # Delete this if OpenMP is not available (e.g., OS X without gcc)
 OPENMP ?= -fopenmp
