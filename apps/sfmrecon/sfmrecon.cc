@@ -50,6 +50,7 @@ struct AppSettings
     bool always_full_ba;
     bool fixed_intrinsics;
     bool shared_intrinsics;
+    bool skip_geometric_filtering;
     int video_matching;
     float track_error_thres_factor;
     float new_track_error_thres;
@@ -110,6 +111,7 @@ features_and_matching (mve::Scene::Ptr scene, AppSettings const& conf,
     matching_opts.ransac_opts.verbose_output = false;
     matching_opts.use_lowres_matching = conf.lowres_matching;
     matching_opts.match_num_previous_frames = conf.video_matching;
+    matching_opts.skip_ransac = conf.skip_geometric_filtering;
 
     std::cout << "Performing feature matching..." << std::endl;
     {
@@ -478,6 +480,7 @@ main (int argc, char** argv)
     args.add_option('\0', "track-thres-factor", true, "Error threshold factor for tracks [25]");
     args.add_option('\0', "use-2cam-tracks", false, "Triangulate tracks from only two cameras");
     args.add_option('\0', "initial-pair", true, "Manually specify initial pair IDs [-1,-1]");
+    args.add_option('\0', "skip-geometric-filtering", false, "Skip geometric filtering during matching");
     args.parse(argc, argv);
 
     /* Setup defaults. */
@@ -500,6 +503,7 @@ main (int argc, char** argv)
     conf.min_views_per_track = 3;
     conf.initial_pair_1 = -1;
     conf.initial_pair_2 = -1;
+    conf.skip_geometric_filtering = false;
 
     /* Read arguments. */
     for (util::ArgResult const* i = args.next_option();
@@ -551,6 +555,8 @@ main (int argc, char** argv)
             std::cout << "Using initial pair (" << conf.initial_pair_1
                 << "," << conf.initial_pair_2 << ")." << std::endl;
         }
+        else if (i->opt->lopt == "skip-geometric-filtering")
+            conf.skip_geometric_filtering = true;
         else
             throw std::invalid_argument("Unexpected option");
     }
