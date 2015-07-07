@@ -65,6 +65,8 @@ public:
         int min_lowres_matches;
         /** Only match to a few previous frames. Disabled by default. */
         int match_num_previous_frames;
+        /** Skip RANSAC for geometric filtering. Disabled by default. */
+        bool skip_ransac;
     };
 
     struct Progress
@@ -103,6 +105,7 @@ Matching::Options::Options (void)
     , num_lowres_features(500)
     , min_lowres_matches(5)
     , match_num_previous_frames(0)
+    , skip_ransac(false)
 {
 }
 

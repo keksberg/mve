@@ -128,6 +128,17 @@ Matching::two_view_matching (FeatureSet const& view_1,
         return;
     }
 
+    /* Skip geometric filtering if requested. */
+    if (this->opts.skip_ransac)
+    {
+        std::vector<int> const& m12 = matching_result.matches_1_2;
+        matches->clear();
+        for (std::size_t i = 0; i < m12.size(); ++i)
+            if (m12[i] >= 0)
+                matches->push_back(std::make_pair(i, m12[i]));
+        return;
+    }
+
     /* Build correspondences from feature matching result. */
     sfm::Correspondences2D2D unfiltered_matches;
     sfm::CorrespondenceIndices unfiltered_indices;
