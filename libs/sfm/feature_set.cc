@@ -187,6 +187,52 @@ FeatureSet::match_lowres (FeatureSet const& other, int num_features) const
     return 0;
 }
 
+void FeatureSet::remove_distant_matches (Matching::Result* matches,
+                                         Sift::Descriptors const& other) const
+{
+    if (this->opts.sift_matching_opts.spatial_threshold
+        == std::numeric_limits<float>::max())
+        return;
+
+    for (std::size_t i = 0; i < matches->matches_1_2.size(); ++i)
+    {
+        if (matches->matches_1_2[i] < 0
+            || matches->matches_2_1[matches->matches_1_2[i]] < 0)
+            continue;
+
+        float t = this->opts.sift_matching_opts.spatial_threshold;
+        if (std::abs(this->sift_descriptors[i].x - other[matches->matches_1_2[i]].x) > t
+            || std::abs(this->sift_descriptors[i].y - other[matches->matches_1_2[i]].y) > t)
+        {
+            matches->matches_2_1[matches->matches_1_2[i]] = -1;
+            matches->matches_1_2[i] = -1;
+        }
+    }
+}
+
+void FeatureSet::remove_distant_matches (Matching::Result* matches,
+                                         Surf::Descriptors const& other) const
+{
+    if (this->opts.surf_matching_opts.spatial_threshold
+        == std::numeric_limits<float>::max())
+        return;
+
+    for (std::size_t i = 0; i < matches->matches_1_2.size(); ++i)
+    {
+        if (matches->matches_1_2[i] < 0
+            || matches->matches_2_1[matches->matches_1_2[i]] < 0)
+            continue;
+
+        float t = this->opts.surf_matching_opts.spatial_threshold;
+        if (std::abs(this->surf_descriptors[i].x - other[matches->matches_1_2[i]].x) > t
+            || std::abs(this->surf_descriptors[i].y - other[matches->matches_1_2[i]].y) > t)
+        {
+            matches->matches_2_1[matches->matches_1_2[i]] = -1;
+            matches->matches_1_2[i] = -1;
+        }
+    }
+}
+
 void
 FeatureSet::match (FeatureSet const& other, Matching::Result* result) const
 {
@@ -199,6 +245,7 @@ FeatureSet::match (FeatureSet const& other, Matching::Result* result) const
             other.sift_descr.begin(), other.num_sift_descriptors,
             &sift_result);
         sfm::Matching::remove_inconsistent_matches(&sift_result);
+        remove_distant_matches(&sift_result, other.sift_descriptors);
     }
 
     /* SURF matching. */
@@ -210,6 +257,7 @@ FeatureSet::match (FeatureSet const& other, Matching::Result* result) const
             other.surf_descr.begin(), other.num_surf_descriptors,
             &surf_result);
         sfm::Matching::remove_inconsistent_matches(&surf_result);
+        remove_distant_matches(&surf_result, other.surf_descriptors);
     }
 
     /* Fix offsets in the matching result. */

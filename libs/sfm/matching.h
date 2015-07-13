@@ -47,6 +47,11 @@ public:
          * Disabled by default.
          */
         float distance_threshold;
+
+        /**
+         * TODO.
+         */
+        float spatial_threshold;
     };
 
     /**
@@ -109,6 +114,7 @@ Matching::Options::Options (void)
     : descriptor_length(128)
     , lowe_ratio_threshold(0.8f)
     , distance_threshold(std::numeric_limits<float>::max())
+    , spatial_threshold(std::numeric_limits<float>::max())
 {
 }
 

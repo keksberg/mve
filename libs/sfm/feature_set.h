@@ -88,6 +88,10 @@ public:
 private:
     void compute_sift (mve::ByteImage::ConstPtr image);
     void compute_surf (mve::ByteImage::ConstPtr image);
+    void remove_distant_matches (Matching::Result* matches,
+                                 Sift::Descriptors const& other) const;
+    void remove_distant_matches (Matching::Result* matches,
+                                 Surf::Descriptors const& other) const;
 
 private:
     Options opts;
@@ -128,12 +132,22 @@ FeatureSet::FeatureSet (Options const& options)
     , num_sift_descriptors(0)
     , num_surf_descriptors(0)
 {
+    this->opts.keep_descriptors |= options.sift_matching_opts.spatial_threshold
+            < std::numeric_limits<float>::max()
+            || options.surf_matching_opts.spatial_threshold
+            < std::numeric_limits<float>::max()
+            || options.keep_descriptors;
 }
 
 inline void
 FeatureSet::set_options (Options const& options)
 {
     this->opts = options;
+    this->opts.keep_descriptors |= options.sift_matching_opts.spatial_threshold
+            < std::numeric_limits<float>::max()
+            || options.surf_matching_opts.spatial_threshold
+            < std::numeric_limits<float>::max()
+            || options.keep_descriptors;
 }
 
 SFM_NAMESPACE_END
