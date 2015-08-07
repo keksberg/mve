@@ -121,7 +121,7 @@ SceneInspect::create_actions (QToolBar* toolbar)
 void
 SceneInspect::on_open_mesh (void)
 {
-    QFileDialog dialog(this, tr("Open Mesh"), this->last_mesh_dir.c_str());
+    QFileDialog dialog(this->window(), tr("Open Mesh"), this->last_mesh_dir.c_str());
     dialog.setFileMode(QFileDialog::ExistingFiles);
     if (!dialog.exec())
         return;
@@ -157,6 +157,8 @@ void
 SceneInspect::on_scene_selected (mve::Scene::Ptr scene)
 {
     this->addin_manager->set_scene(scene);
+    if (scene)
+        this->last_mesh_dir = scene->get_path();
 }
 
 /* ---------------------------------------------------------------- */
