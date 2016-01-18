@@ -21,9 +21,15 @@ out vec3 onormal;
 uniform mat4 viewmat;
 uniform mat4 projmat;
 
+uniform float minconf = 0.0;
+
 void main(void)
 {
     ocolor = color;
+    if (color.a < minconf)
+        ocolor.a = 0.0;
+    else
+        ocolor.a = 1.0;
     onormal = normal;
     gl_Position = projmat * (viewmat * pos);
 }

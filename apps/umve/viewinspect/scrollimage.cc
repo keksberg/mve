@@ -101,7 +101,7 @@ ScrollImage::mouse_clicked (int, int, QMouseEvent* event)
 void
 ScrollImage::mouse_moved (int, int, QMouseEvent* event)
 {
-    if (event->buttons() ^ Qt::LeftButton)
+    if (!(event->buttons() & Qt::LeftButton))
         return;
     QPoint diff = mouse_pos - event->pos();
     this->move_scrollbar(this->horizontalScrollBar(), diff.x());

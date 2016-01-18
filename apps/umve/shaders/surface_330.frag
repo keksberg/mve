@@ -45,6 +45,7 @@ void main(void)
         if (light_factor < 0.0)
             light_factor = -light_factor / 2.0;
         frag_color = albedo * light_factor;
+        frag_color.a = albedo.a;
     }
     else
     {

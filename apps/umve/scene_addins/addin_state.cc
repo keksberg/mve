@@ -8,6 +8,7 @@
  */
 
 #include <iostream>
+#include <iomanip>
 
 #include "util/file_system.h"
 #include "util/exception.h"
@@ -160,6 +161,19 @@ AddinState::load_shaders (void)
         load_shaders_from_resources(this->overlay_shader,
             ":/shaders/overlay_330");
     }
+
+    float w[2];
+    glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, w);
+    std::cout << w[0] << " " << w[1] << std::endl;
+    glGetFloatv(GL_SMOOTH_LINE_WIDTH_RANGE, w);
+    std::cout << w[0] << " " << w[1] << std::endl;
+    glGetFloatv(GL_SMOOTH_LINE_WIDTH_GRANULARITY, &w[0]);
+    std::cout << w[0] << std::endl;
+    std::cout << std::hex << glGetError() << std::endl;
+    //glEnable(GL_LINE_SMOOTH);
+    std::cout << std::hex << glGetError() << std::endl;
+    glLineWidth(2.0);
+    std::cout << std::hex << glGetError() << std::endl;
 }
 
 void

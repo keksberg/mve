@@ -79,7 +79,8 @@ main (int argc, char** argv)
 #if defined(_WIN32)
     fmt.setProfile(QGLFormat::CompatibilityProfile);
 #else
-    fmt.setProfile(QGLFormat::CoreProfile);
+    fmt.setProfile(QGLFormat::CompatibilityProfile);
+    //fmt.setProfile(QGLFormat::CoreProfile);
 #endif
     QGLFormat::setDefaultFormat(fmt);
 

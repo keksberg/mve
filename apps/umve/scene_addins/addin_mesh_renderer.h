@@ -39,12 +39,19 @@ public:
 protected:
     void paint_impl (void);
 
+private slots:
+    void set_vertex_confidence (int conf);
+    void copy_confidence_to_alpha (void);
+
 private:
     QVBoxLayout* render_meshes_box;
     QCheckBox* render_lighting_cb;
     QCheckBox* render_wireframe_cb;
     QCheckBox* render_color_cb;
     QMeshList* mesh_list;
+    QSlider* confidence_slider;
+
+    float confidence;
 };
 
 #endif /* UMVE_ADDIN_MESHES_RENDERER_HEADER */

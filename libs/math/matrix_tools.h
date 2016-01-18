@@ -29,6 +29,11 @@ Matrix<T,4,4>
 matrix_gl_projection (T const& znear, T const& zfar,
     T const& top, T const& right);
 
+template <typename T>
+Matrix<T,4,4>
+matrix_gl_ortho (T const& znear, T const& zfar,
+    T const& top, T const& right);
+
 /**
  * Creates a symmetric inverse projection matrix as used in OpenGL.
  */
@@ -207,6 +212,21 @@ matrix_gl_projection (T const& znear, T const& zfar,
     proj(2,2) = -(zfar + znear) / (zfar - znear);
     proj(2,3) = T(-2) * zfar * znear / (zfar - znear);
     proj(3,2) = -1;
+
+    return proj;
+}
+
+template <typename T>
+Matrix<T,4,4>
+matrix_gl_ortho (T const& znear, T const& zfar,
+    T const& top, T const& right)
+{
+    Matrix<T,4,4> proj(0.0f);
+    proj(0,0) = T(1) / right;
+    proj(1,1) = T(1) / top;
+    proj(2,2) = T(-2) / (zfar - znear);
+    proj(2,3) = -(zfar + znear) / (zfar - znear);
+    proj(3,3) = T(1);
 
     return proj;
 }

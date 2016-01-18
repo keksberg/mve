@@ -22,6 +22,8 @@
 #include "guihelpers.h"
 #include "scene_addins/addin_mesh_renderer.h"
 
+#include <iostream>
+
 AddinMeshesRenderer::AddinMeshesRenderer (void)
 {
     this->render_lighting_cb = new QCheckBox("Mesh lighting");
@@ -32,11 +34,18 @@ AddinMeshesRenderer::AddinMeshesRenderer (void)
     this->render_lighting_cb->setChecked(true);
     this->render_color_cb->setChecked(true);
 
+    this->confidence_slider = new QSlider();
+    this->confidence_slider->setMinimum(0);
+    this->confidence_slider->setMaximum(100);
+    this->confidence_slider->setValue(0);
+    this->confidence_slider->setOrientation(Qt::Horizontal);
+
     this->render_meshes_box = new QVBoxLayout();
     this->render_meshes_box->setSpacing(0);
     this->render_meshes_box->addWidget(this->render_lighting_cb);
     this->render_meshes_box->addWidget(this->render_wireframe_cb);
     this->render_meshes_box->addWidget(this->render_color_cb);
+    this->render_meshes_box->addWidget(this->confidence_slider);
     this->render_meshes_box->addSpacing(5);
     this->render_meshes_box->addWidget(this->mesh_list, 1);
 
@@ -48,6 +57,12 @@ AddinMeshesRenderer::AddinMeshesRenderer (void)
         this, SLOT(repaint()));
     this->connect(this->mesh_list, SIGNAL(signal_redraw()),
         this, SLOT(repaint()));
+    this->connect(this->mesh_list, SIGNAL(signal_redraw()),
+        this, SLOT(copy_confidence_to_alpha()));
+    this->connect(this->confidence_slider, SIGNAL(valueChanged(int)),
+        this, SLOT(set_vertex_confidence(int)));
+
+    this->confidence = 0.0f;
 }
 
 QWidget*
@@ -62,6 +77,7 @@ AddinMeshesRenderer::add_mesh (std::string const& name,
     ogl::Texture::Ptr texture)
 {
     this->mesh_list->add(name, mesh, filename, texture);
+    this->copy_confidence_to_alpha();
 }
 
 void
@@ -203,6 +219,10 @@ AddinMeshesRenderer::paint_impl (void)
 
         mesh_shader->bind();
 
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_BLEND);
+        mesh_shader->send_uniform("minconf", this->confidence);
+
         /* Setup shader to use mesh color or default color. */
         if (this->render_color_cb->isChecked() && mr.mesh->has_vertex_colors())
         {
@@ -250,5 +270,46 @@ AddinMeshesRenderer::paint_impl (void)
                 glDisable(GL_BLEND);
             }
         }
+    }
+}
+
+void
+AddinMeshesRenderer::set_vertex_confidence (int conf)
+{
+    float normalized = conf / 100.0f;
+    normalized = std::pow(normalized, 4.0f);
+
+    std::cout << normalized << std::endl;
+    this->confidence = normalized;
+    this->repaint();
+}
+
+void
+AddinMeshesRenderer::copy_confidence_to_alpha ()
+{
+    for (MeshRep & meshrep : this->mesh_list->get_meshes())
+    {
+        mve::MeshBase::ConfidenceList const& confidences
+            = meshrep.mesh->get_vertex_confidences();
+
+        float fmin = std::numeric_limits<float>::max();
+        float fmax = -std::numeric_limits<float>::max();
+        for (std::size_t i = 0; i < confidences.size(); ++i)
+        {
+            fmin = std::min(fmin, confidences[i]);
+            fmax = std::max(fmax, confidences[i]);
+        }
+
+        mve::TriangleMesh::ColorList& vcolor
+            = meshrep.mesh->get_vertex_colors();
+
+        std::cout << "Confidences between " << fmin << " and " << fmax << std::endl;
+
+        for (std::size_t i = 0; i < confidences.size(); ++i)
+            vcolor[i][3] = ((confidences[i] - fmin) / (fmax - fmin));
+
+        meshrep.renderer.reset();
+
+        std::cout << "copied confs for mesh " << meshrep.name << std::endl;
     }
 }
