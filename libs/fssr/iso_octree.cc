@@ -23,6 +23,8 @@
 #include "fssr/sample.h"
 #include "fssr/iso_octree.h"
 
+#include "fssr/octree_cuda.h"
+
 FSSR_NAMESPACE_BEGIN
 
 void
@@ -30,7 +32,8 @@ IsoOctree::compute_voxels (void)
 {
     util::WallTimer timer;
     this->voxels.clear();
-    this->compute_all_voxels();
+    //this->compute_all_voxels();
+    compute_all_voxels_v2(this);
     std::cout << "Generated " << this->voxels.size()
         << " voxels, took " << timer.get_elapsed() << "ms." << std::endl;
 }

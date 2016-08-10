@@ -13,6 +13,19 @@
 #define FSSR_NAMESPACE_BEGIN namespace fssr {
 #define FSSR_NAMESPACE_END }
 
+#define CS(call)                                            \
+{                                                           \
+    cudaError_t err = call;                                 \
+                                                            \
+    if(cudaSuccess != err) {                                \
+        std::cerr << "CUDA error in " << __FILE__ << ":"    \
+                  << __LINE__ << ": "                       \
+                  << cudaGetErrorString(err) << " (" << err \
+                  << ")" << std::endl;                      \
+        std::exit(EXIT_FAILURE);                            \
+    }                                                       \
+}
+
 /* Use new weighting function with continuous derivative. */
 #define FSSR_NEW_WEIGHT_FUNCTION 1
 
